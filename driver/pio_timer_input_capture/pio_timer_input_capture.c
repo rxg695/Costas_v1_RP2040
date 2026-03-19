@@ -1,0 +1,77 @@
+#include "driver/pio_timer_input_capture/pio_timer_input_capture.h"
+
+#include "hardware/clocks.h"
+#include "pio_timer_input_capture.pio.h"
+
+void pio_timer_input_capture_init(pio_timer_input_capture_t *capture,
+                                  PIO pio,
+                                  uint sm,
+                                  uint start_pin,
+                                  uint stop_pin,
+                                  uint32_t sm_clk_hz,
+                                  uint32_t timeout_ns)
+{
+    capture->pio = pio;
+    capture->sm = sm;
+    capture->start_pin = start_pin;
+    capture->stop_pin = stop_pin;
+    capture->sm_clk_hz = sm_clk_hz;
+    capture->timeout_ns = timeout_ns;
+
+    // PIO count loop takes 2 cycles/iteration. Convert timeout ns -> loop count.
+    uint64_t timeout_loops_64 = ((uint64_t) timeout_ns * sm_clk_hz) / 2000000000ull;
+    capture->timeout_loops = (uint32_t) timeout_loops_64;
+
+    // Load PIO program into instruction memory.
+    capture->offset = pio_add_program(pio, &pio_timer_input_capture_program);
+
+    // Assign start/stop pins to PIO control and set them as inputs.
+    pio_gpio_init(pio, start_pin);
+    pio_gpio_init(pio, stop_pin);
+    gpio_set_dir(start_pin, GPIO_IN);
+    gpio_set_dir(stop_pin, GPIO_IN);
+    pio_sm_set_consecutive_pindirs(pio, sm, start_pin, 1, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, stop_pin, 1, false);
+
+    // Build SM config for capture program.
+    pio_sm_config config = pio_timer_input_capture_program_get_default_config(capture->offset);
+    float clkdiv = (float) clock_get_hz(clk_sys) / (float) sm_clk_hz;
+    sm_config_set_clkdiv(&config, clkdiv);
+
+    // WAIT PIN 0 samples start_pin through IN base mapping.
+    sm_config_set_in_pins(&config, start_pin);
+
+    // JMP PIN samples stop_pin.
+    sm_config_set_jmp_pin(&config, stop_pin);
+
+    // Initialize state machine and provide timeout loop count via TX FIFO.
+    pio_sm_init(pio, sm, capture->offset, &config);
+    pio_sm_put_blocking(pio, sm, capture->timeout_loops);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+bool pio_timer_input_capture_poll(pio_timer_input_capture_t *capture,
+                                  uint32_t *elapsed_ticks,
+                                  bool *timed_out)
+{
+    if (pio_sm_is_rx_fifo_empty(capture->pio, capture->sm)) {
+        return false;
+    }
+
+    uint32_t result = pio_sm_get(capture->pio, capture->sm);
+    if (result == PIO_TIMER_INPUT_CAPTURE_TIMEOUT_SENTINEL) {
+        *timed_out = true;
+        *elapsed_ticks = 0;
+    } else {
+        *timed_out = false;
+        *elapsed_ticks = capture->timeout_loops - result;
+    }
+
+    return true;
+}
+
+uint64_t pio_timer_input_capture_ticks_to_ns(const pio_timer_input_capture_t *capture,
+                                             uint32_t ticks)
+{
+    return ((uint64_t) ticks * 2000000000ull) / capture->sm_clk_hz;
+}

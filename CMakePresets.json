@@ -1,0 +1,53 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 13,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "normal",
+      "displayName": "Normal",
+      "description": "Production build (validation mode OFF)",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "PIO_TIMER_CAPTURE_VALIDATION": "OFF"
+      }
+    },
+    {
+      "name": "validation",
+      "displayName": "PIO Timer Capture Validation",
+      "description": "Validation build with timer capture test entrypoint",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build_validation",
+      "cacheVariables": {
+        "PIO_TIMER_CAPTURE_VALIDATION": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-normal",
+      "displayName": "Build Normal",
+      "description": "Build production preset",
+      "configurePreset": "normal"
+    },
+    {
+      "name": "build-validation",
+      "displayName": "Build Validation",
+      "description": "Build validation preset",
+      "configurePreset": "validation"
+    }
+  ]
+}

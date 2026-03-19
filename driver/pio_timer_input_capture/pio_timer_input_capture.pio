@@ -1,0 +1,45 @@
+.program pio_timer_input_capture
+
+; One-time init: pull timeout loop count from TX FIFO into Y.
+; Then for each cycle:
+;   - Wait for start pin rising edge (configured at runtime)
+;   - Count down X until stop pin rises or timeout expires
+;   - Push remaining X on success, or 0xffffffff on timeout
+;   - Return to standby for next start edge
+
+    pull block
+    mov y, osr
+
+.wrap_target
+    ; Arm on a clean start rising edge. Start pin is mapped to WAIT PIN 0
+    ; through SM IN base configuration from host code.
+    wait 0 pin 0
+    wait 1 pin 0
+
+    ; Load per-measurement timeout countdown.
+    mov x, y
+
+count_loop:
+    ; Stop condition uses SM JMP pin (configured to stop pin at runtime).
+    jmp pin got_stop
+    ; Otherwise keep counting down until stop edge or timeout.
+    jmp x-- count_loop
+
+timed_out:
+    ; Emit timeout sentinel (0xffffffff).
+    set x, 0
+    mov x, ~x
+    mov isr, x
+    push block
+    jmp rearm
+
+got_stop:
+    ; Emit remaining countdown value for host-side elapsed-time reconstruction.
+    mov isr, x
+    push block
+
+rearm:
+    ; Wait for stop pin to return low before next armed cycle.
+rearm_wait:
+    jmp pin rearm_wait
+.wrap
