@@ -1,13 +1,21 @@
 {
     "version": "2.0.0",
     "tasks": [
-        // Legacy direct-Ninja build task (build/ folder).
+        // Default compile task using CMake presets (robust after renames/moves).
         {
             "label": "Compile Project",
             "type": "process",
             "isBuildCommand": true,
-            "command": "${userHome}/.pico-sdk/ninja/v1.12.1/ninja",
-            "args": ["-C", "${workspaceFolder}/build"],
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "build-normal"
+            ],
+            "dependsOn": [
+                "Configure (Normal Preset)"
+            ],
+            "dependsOrder": "sequence",
             "group": "build",
             "presentation": {
                 "reveal": "always",
@@ -15,7 +23,7 @@
             },
             "problemMatcher": "$gcc",
             "windows": {
-                "command": "${env:USERPROFILE}/.pico-sdk/ninja/v1.12.1/ninja.exe"
+                "command": "cmake.exe"
             }
         },
         // Configure production preset (validation mode OFF).
@@ -113,6 +121,29 @@
                 "${command:raspberry-pi-pico.launchTargetPath}",
                 "-fx"
             ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": [],
+            "windows": {
+                "command": "${env:USERPROFILE}/.pico-sdk/picotool/2.2.0-a4/picotool/picotool.exe"
+            }
+        },
+        // Build and flash validation firmware image.
+        {
+            "label": "Run Validation Project",
+            "type": "process",
+            "command": "${env:HOME}/.pico-sdk/picotool/2.2.0-a4/picotool/picotool",
+            "args": [
+                "load",
+                "${workspaceFolder}/build_validation/Costas_v1_RP2040.elf",
+                "-fx"
+            ],
+            "dependsOn": [
+                "Build (Validation Preset)"
+            ],
+            "dependsOrder": "sequence",
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"

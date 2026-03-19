@@ -48,7 +48,7 @@ The architecture is layered so low-level timing primitives remain reusable while
 
 ### 2) Schedulers and Timeline Engine (mid-level)
 
-- (planned) transmission event scheduler (sequence of compare events)
+- `src/scheduler/pio_event_scheduler`: CPU-fed non-blocking event scheduler for output-compare continuous mode
 - (planned) Costas symbol scheduler (word preload + `FQ_UD` pulse plan)
 - (planned) guard intervals and safety interlocks (PTT holdoff, timeout abort)
 
@@ -70,6 +70,7 @@ Implemented now:
 
 - PIO output compare driver with runtime pin selection and programmable delay/pulse widths
 - PIO input capture driver with configurable pins and timeout behavior
+- Firmware-level PIO event scheduler module for continuous output-compare event feeding
 - Dedicated validation build mode and interactive USB validation menu
 - CMake presets/tasks for normal vs validation builds
 

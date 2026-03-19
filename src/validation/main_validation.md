@@ -21,6 +21,9 @@
 - `src/main.c` — production entrypoint
 - `src/validation/pio_timer_input_capture_validation.c` — validation implementation
 - `src/validation/pio_timer_input_capture_validation.h` — validation module API
+- `src/validation/pio_timer_output_compare_validation.c` — output compare validation implementation
+- `src/validation/pio_event_scheduler_validation.c` — scheduler validation implementation
+- `src/scheduler/pio_event_scheduler.*` — firmware scheduler under validation
 - `driver/pio_timer_output_compare/*` — output-compare validation target
 - `CMakeLists.txt` — selects this entrypoint in validation mode
 
@@ -30,6 +33,7 @@
 2. Shows menu for module selection:
 	- input capture validation
 	- output compare validation
+	- scheduler validation
 3. Prompts for module-specific parameters.
 4. Runs selected validation routine.
 5. Returns to menu when module run exits (`q` in module loop).

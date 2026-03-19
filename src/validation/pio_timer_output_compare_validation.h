@@ -10,6 +10,7 @@ typedef struct {
     uint sm;
     uint trigger_pin;
     uint output_pin;
+    bool continuous_mode;
     uint32_t sm_clk_hz;
     uint32_t compare_ns;
     uint32_t pulse_ns;

@@ -4,6 +4,7 @@
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
+#include "src/validation/pio_event_scheduler_validation.h"
 #include "src/validation/pio_timer_input_capture_validation.h"
 #include "src/validation/pio_timer_output_compare_validation.h"
 
@@ -91,15 +92,28 @@ int main()
         .sm = 1,
         .trigger_pin = 6,
         .output_pin = 9,
+        .continuous_mode = false,
         .sm_clk_hz = 100000000u,
         .compare_ns = 1000u,
         .pulse_ns = 1000u,
+    };
+
+    pio_event_scheduler_validation_config_t scheduler_cfg = {
+        .pio_index = 0,
+        .sm = 2,
+        .trigger_pin = 6,
+        .output_pin = 10,
+        .sm_clk_hz = 100000000u,
+        .compare_ns = 1000u,
+        .pulse_ns = 1000u,
+        .event_count = 16u,
     };
 
     while (true) {
         printf("\n=== Validation Menu ===\n");
         printf("1) Input capture validation\n");
         printf("2) Output compare validation\n");
+        printf("3) Scheduler validation\n");
         printf("q) Quit menu loop\n");
         printf("Select: ");
 
@@ -130,11 +144,25 @@ int main()
             output_cfg.sm = prompt_u32("SM index", output_cfg.sm);
             output_cfg.trigger_pin = prompt_u32("Trigger pin", output_cfg.trigger_pin);
             output_cfg.output_pin = prompt_u32("Output pin", output_cfg.output_pin);
+            output_cfg.continuous_mode =
+                prompt_u32("Continuous mode (0=one-shot, 1=continuous)",
+                           output_cfg.continuous_mode ? 1u : 0u) != 0u;
             output_cfg.sm_clk_hz = prompt_u32("SM clock (Hz)", output_cfg.sm_clk_hz);
             output_cfg.compare_ns = prompt_u32("Compare delay (ns)", output_cfg.compare_ns);
             output_cfg.pulse_ns = prompt_u32("Pulse width (ns)", output_cfg.pulse_ns);
 
             pio_timer_output_compare_validation_run(&output_cfg);
+        } else if (line[0] == '3') {
+            scheduler_cfg.pio_index = prompt_u32("PIO index (0 or 1)", scheduler_cfg.pio_index);
+            scheduler_cfg.sm = prompt_u32("SM index", scheduler_cfg.sm);
+            scheduler_cfg.trigger_pin = prompt_u32("Trigger pin", scheduler_cfg.trigger_pin);
+            scheduler_cfg.output_pin = prompt_u32("Output pin", scheduler_cfg.output_pin);
+            scheduler_cfg.sm_clk_hz = prompt_u32("SM clock (Hz)", scheduler_cfg.sm_clk_hz);
+            scheduler_cfg.compare_ns = prompt_u32("Compare delay (ns)", scheduler_cfg.compare_ns);
+            scheduler_cfg.pulse_ns = prompt_u32("Pulse width (ns)", scheduler_cfg.pulse_ns);
+            scheduler_cfg.event_count = prompt_u32("Event count", scheduler_cfg.event_count);
+
+            pio_event_scheduler_validation_run(&scheduler_cfg);
         } else if (line[0] == 'q' || line[0] == 'Q') {
             printf("Exiting validation menu loop\n");
             while (true) {

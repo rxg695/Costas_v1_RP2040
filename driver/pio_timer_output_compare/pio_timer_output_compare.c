@@ -8,7 +8,8 @@ void pio_timer_output_compare_init(PIO pio,
                                    uint offset,
                                    uint trigger_pin,
                                    uint output_pin,
-                                   float sm_clk_hz)
+                                   float sm_clk_hz,
+                                   pio_timer_output_compare_mode_t mode)
 {
     // Prepare trigger pin for PIO input sampling.
     pio_gpio_init(pio, trigger_pin);
@@ -25,6 +26,10 @@ void pio_timer_output_compare_init(PIO pio,
     // SET instructions target the selected output pin.
     sm_config_set_set_pins(&config, output_pin, 1);
 
+    // This driver only transmits schedule words into TX FIFO; RX is unused.
+    // Join FIFOs to increase TX capacity (8 words on RP2040).
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
+
     // WAIT PIN 0 samples this configured trigger pin.
     sm_config_set_in_pins(&config, trigger_pin);
 
@@ -38,6 +43,9 @@ void pio_timer_output_compare_init(PIO pio,
 
     // Start the state machine.
     pio_sm_set_enabled(pio, sm, true);
+
+    // Push operating mode word consumed by the PIO program at startup.
+    pio_sm_put_blocking(pio, sm, (uint32_t) mode);
 }
 
 void pio_timer_output_compare_arm(PIO pio,
@@ -45,10 +53,26 @@ void pio_timer_output_compare_arm(PIO pio,
                                   uint32_t compare_ticks,
                                   uint32_t pulse_ticks)
 {
+    pio_timer_output_compare_queue_event(pio, sm, compare_ticks, pulse_ticks);
+}
+
+void pio_timer_output_compare_queue_event(PIO pio,
+                                          uint sm,
+                                          uint32_t compare_ticks,
+                                          uint32_t pulse_ticks)
+{
     // Load compare start delay for next trigger event.
     pio_sm_put_blocking(pio, sm, compare_ticks);
     // Load pulse high duration for next trigger event.
     pio_sm_put_blocking(pio, sm, pulse_ticks);
+}
+
+void pio_timer_output_compare_queue_stop(PIO pio,
+                                         uint sm)
+{
+    // In continuous mode this command is consumed as stream terminator.
+    pio_sm_put_blocking(pio, sm, PIO_TIMER_OUTPUT_COMPARE_STOP_COMPARE_TICKS);
+    pio_sm_put_blocking(pio, sm, 0u);
 }
 
 uint32_t pio_timer_output_compare_ns_to_ticks(uint32_t sm_clk_hz,

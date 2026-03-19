@@ -2,6 +2,9 @@
 build/
 build_validation/
 
+# WaveForms validation projects for logic analyser (to be ungitignored when developed further)
+WaveForms_validation_projects/
+
 # Local cache / tooling scratch
 .cache/
 

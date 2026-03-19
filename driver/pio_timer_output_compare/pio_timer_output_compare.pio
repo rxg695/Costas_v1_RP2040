@@ -1,43 +1,87 @@
 .program pio_timer_output_compare
 
-; PIO timer output compare block (programmable pulse width):
-; 1) Wait for configured trigger pin rising edge
-; 2) Count down compare ticks loaded from TX FIFO
-; 3) Drive output high and hold for pulse ticks loaded from TX FIFO
-; 4) Drive output low, then re-arm
+; PIO timer output compare block (programmable pulse width)
+; Supports two runtime-selected modes:
+; 1) one-shot mode: trigger edge -> one event per queued pair
+; 2) continuous mode: first trigger edge starts stream, then events chain by delta
 ;
-; Host must push two values per arm, in order:
-;   - compare_ticks
-;   - pulse_ticks
+; Mode word is pulled once at startup:
+;   0 = one-shot
+;   1 = continuous
+;
+; Event words (both modes):
+;   - compare_ticks (delta/countdown)
+;   - pulse_ticks   (high duration)
+;
+; Continuous-mode stop command:
+;   - compare_ticks = 0
+;   - pulse_ticks = 0
 
 .wrap_target
     ; Ensure output is low while idle/re-arming.
     set pins, 0
 
-    ; Blocking pull of compare value from TX FIFO.
+    ; Pull mode word once, store in ISR for branching.
     pull block
+    mov isr, osr
     mov x, osr
 
-    ; Blocking pull of pulse width value from TX FIFO.
-    pull block
-    mov y, osr
+    ; Branch by mode (0=one-shot, nonzero=continuous).
+    jmp !x one_shot_loop
 
-    ; Arm on clean trigger rising edge.
-    ; Trigger pin is selected at runtime by mapping IN base to the desired GPIO.
+continuous_wait_trigger:
+    ; Start stream on clean trigger rising edge.
     wait 0 pin 0
     wait 1 pin 0
 
-compare_count:
-    ; Two-instruction loop body sets compare tick granularity.
-    jmp x-- compare_count
+continuous_loop:
+    ; Pull compare (delta) and pulse width.
+    pull block
+    mov x, osr
+    pull block
+    mov y, osr
 
-    ; Compare match: drive output high.
+    ; Zero compare can mean either immediate event (pulse>0) or stop (pulse=0).
+    jmp !x continuous_compare_zero
+    jmp continuous_compare_count
+
+continuous_compare_zero:
+    jmp !y continuous_wait_trigger
+    ; compare==0 with pulse>0 => immediate pulse event.
+    set pins, 1
+    jmp continuous_pulse_count
+
+continuous_compare_count:
+    jmp x-- continuous_compare_count
+
     set pins, 1
 
-pulse_count:
-    ; Hold high for programmable pulse width ticks.
-    jmp y-- pulse_count
+continuous_pulse_count:
+    jmp y-- continuous_pulse_count
 
-    ; End of pulse.
     set pins, 0
+    jmp continuous_loop
+
+one_shot_loop:
+    ; Pull one compare/pulse pair per event.
+    pull block
+    mov x, osr
+
+    pull block
+    mov y, osr
+
+    ; One-shot arm on clean trigger rising edge.
+    wait 0 pin 0
+    wait 1 pin 0
+
+one_shot_compare_count:
+    jmp x-- one_shot_compare_count
+
+    set pins, 1
+
+one_shot_pulse_count:
+    jmp y-- one_shot_pulse_count
+
+    set pins, 0
+    jmp one_shot_loop
 .wrap

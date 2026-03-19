@@ -54,11 +54,13 @@ if(PIO_TIMER_CAPTURE_VALIDATION)
     target_sources(Costas_v1_RP2040 PRIVATE
         src/validation/pio_timer_input_capture_validation.c
         src/validation/pio_timer_output_compare_validation.c
+        src/validation/pio_event_scheduler_validation.c
     )
 endif()
 
 # Shared driver sources and generated PIO headers (used in both prod/validation).
 target_sources(Costas_v1_RP2040 PRIVATE
+    src/scheduler/pio_event_scheduler.c
     ${DRIVER_SOURCES}
 )
 foreach(driver_pio_file IN LISTS DRIVER_PIO_FILES)
