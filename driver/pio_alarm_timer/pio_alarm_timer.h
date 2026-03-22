@@ -7,14 +7,17 @@
 #include "hardware/pio.h"
 #include "pico/stdlib.h"
 
-// Command word definitions (host -> PIO TX FIFO).
+/** Host-to-PIO command word that rearms the timer on the next PPS cycle. */
 #define PIO_ALARM_TIMER_CMD_REARM 0u
 
-// Result word definitions (PIO RX FIFO -> host).
+/** PIO-to-host result word used when an alarm was already late. */
 #define PIO_ALARM_TIMER_RESULT_LATE 0u
+/** PIO-to-host result word used to acknowledge a rearm command. */
 #define PIO_ALARM_TIMER_RESULT_REARM_ACK 0xFFFFFFFFu
 
-// Return status for enqueue requests issued by host firmware.
+/**
+ * @brief Result of attempting to queue an alarm command.
+ */
 typedef enum {
     PIO_ALARM_TIMER_ENQUEUE_OK = 0,
     PIO_ALARM_TIMER_ENQUEUE_ERR_NOT_INIT,
@@ -23,47 +26,54 @@ typedef enum {
     PIO_ALARM_TIMER_ENQUEUE_ERR_TX_FULL,
 } pio_alarm_timer_enqueue_status_t;
 
-// Decoded meaning of one raw 32-bit result word from PIO RX FIFO.
+/**
+ * @brief Decoded meaning of one RX FIFO result word.
+ */
 typedef enum {
     PIO_ALARM_TIMER_RESULT_KIND_REARM_ACK = 0,
     PIO_ALARM_TIMER_RESULT_KIND_LATE,
     PIO_ALARM_TIMER_RESULT_KIND_FIRED,
 } pio_alarm_timer_result_kind_t;
 
-// Typed representation of one PIO alarm result event.
-// - REARM_ACK: tick is 0
-// - LATE:      tick is 0
-// - FIRED:     tick is the alarm target reached by the counter
+/**
+ * @brief Decoded result returned by the PIO program.
+ */
 typedef struct {
     pio_alarm_timer_result_kind_t kind;
     uint32_t tick;
 } pio_alarm_timer_result_t;
 
-// IRQ callback signature used by optional RX-not-empty dispatch path.
+/**
+ * @brief Callback signature used for IRQ-driven result dispatch.
+ */
 typedef void (*pio_alarm_timer_rx_callback_t)(const pio_alarm_timer_result_t *result,
                                               void *user_data);
 
-// Runtime driver instance state.
-// This object is owned by caller and must outlive IRQ callback registration.
+/**
+ * @brief Runtime state for one PIO alarm timer instance.
+ */
 typedef struct {
     PIO pio;
     uint sm;
     bool initialized;
 
-    // Host-side monotonic guard state for queued alarm ticks.
+    /** Tracks the last accepted alarm tick for monotonicity checking. */
     bool has_last_alarm;
     uint32_t last_alarm_tick;
 
-    // Optional IRQ dispatch registration state.
+    /** IRQ callback registration state. */
     bool rx_irq_enabled;
     pio_alarm_timer_rx_callback_t rx_callback;
     void *rx_user_data;
 } pio_alarm_timer_t;
 
-// Initializes one PIO state machine for the alarm timer program.
-// `offset` must reference `pio_alarm_timer_program` loaded in this PIO block.
-// `pps_pin` is sampled by WAIT PIN 0 and gates reset/rearm release.
-// `sm_clk_hz` defines timer tick resolution through PIO clock divider.
+/**
+ * @brief Initializes one state machine for the alarm timer program.
+ *
+ * @param offset Offset returned when the PIO program was loaded.
+ * @param pps_pin Pin sampled by the PIO WAIT instructions during rearm.
+ * @param sm_clk_hz Requested state-machine clock.
+ */
 void pio_alarm_timer_init(pio_alarm_timer_t *timer,
                           PIO pio,
                           uint sm,
@@ -71,42 +81,47 @@ void pio_alarm_timer_init(pio_alarm_timer_t *timer,
                           uint pps_pin,
                           float sm_clk_hz);
 
-// Queues rearm/reset command (0) if TX FIFO has room.
-// Returns false when timer is not initialized or TX FIFO is full.
-// On success, host-side monotonic guard state is cleared.
+/**
+ * @brief Queues a rearm command.
+ *
+ * On success, clears the host-side monotonic guard history.
+ */
 bool pio_alarm_timer_queue_rearm(pio_alarm_timer_t *timer);
 
-// Queues an alarm tick command with monotonic guard.
-// Guard behavior:
-// - tick==0: rejected (ERR_ZERO_TICK), no enqueue
-// - tick < last_alarm_tick: queue rearm command and return ERR_NON_MONOTONIC
-// - otherwise: enqueue tick and return OK
-// On successful enqueue, `last_alarm_tick` is updated.
-// Note: this guard is host-side and complements PIO-side behavior.
+/**
+ * @brief Queues an alarm tick and rejects descending values.
+ */
 pio_alarm_timer_enqueue_status_t pio_alarm_timer_queue_alarm(pio_alarm_timer_t *timer,
                                                              uint32_t alarm_tick);
 
-// Reads one result from RX FIFO if available.
-// Returns true when one word is returned via `result_out`.
+/**
+ * @brief Reads one raw result from the RX FIFO when available.
+ */
 bool pio_alarm_timer_try_read_result(pio_alarm_timer_t *timer,
                                      uint32_t *result_out);
 
-// Decodes one raw result word into typed result data.
+/**
+ * @brief Decodes a raw result word into @ref pio_alarm_timer_result_t.
+ */
 void pio_alarm_timer_decode_result(uint32_t raw_result,
                                    pio_alarm_timer_result_t *decoded_out);
 
-// Reads and decodes one result from RX FIFO if available.
-// Returns false when no result is available or parameters are invalid.
+/**
+ * @brief Reads and decodes one result from the RX FIFO.
+ */
 bool pio_alarm_timer_try_read_decoded_result(pio_alarm_timer_t *timer,
                                              pio_alarm_timer_result_t *decoded_out);
 
-// Enables RX-not-empty IRQ callback dispatch for this timer instance.
-// Callback executes in interrupt context and must be short and non-blocking.
+/**
+ * @brief Enables IRQ-driven RX callback dispatch on the PIO IRQ0 line.
+ */
 void pio_alarm_timer_set_rx_irq_callback(pio_alarm_timer_t *timer,
                                          pio_alarm_timer_rx_callback_t callback,
                                          void *user_data);
 
-// Disables RX-not-empty IRQ callback dispatch for this timer instance.
+/**
+ * @brief Disables IRQ-driven RX callback dispatch for this instance.
+ */
 void pio_alarm_timer_clear_rx_irq_callback(pio_alarm_timer_t *timer);
 
 #endif

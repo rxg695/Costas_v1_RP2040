@@ -5,6 +5,9 @@
 
 #include "pico/stdlib.h"
 
+/**
+ * @brief Configuration for the alarm-timer validation loop.
+ */
 typedef struct {
     uint pio_index;
     uint sm;
@@ -15,7 +18,9 @@ typedef struct {
     uint32_t burst_count;
 } pio_alarm_timer_validation_config_t;
 
-// Runs interactive validation for pio_alarm_timer until user exits.
+/**
+ * @brief Runs the alarm-timer validation loop until the user exits.
+ */
 void pio_alarm_timer_validation_run(const pio_alarm_timer_validation_config_t *config);
 
 #endif

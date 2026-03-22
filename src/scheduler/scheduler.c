@@ -207,12 +207,7 @@ static bool scheduler_build_sequences(scheduler_t *scheduler,
     sw_fifo_clear(&scheduler->alarm_fifo);
     scheduler->output_stop_queued = false;
 
-    // Recurrence model:
-    // output[0] = dt0
-    // output[k] = output[k-1] + dts[k-1], k=1..N-1
-    // alarm[0]  = dt0 - load_offset
-    // alarm[k]  = alarm[k-1] + dts[k-1], k=1..N-1
-    // alarm[N]  = alarm[N-1] + load_offset
+    // Output compare uses a 5x tick scale relative to the alarm sequence.
     const int64_t output_scale = 5ll;
 
     int64_t output_abs = (int64_t) request->dt0 * output_scale;
@@ -503,8 +498,7 @@ bool scheduler_init(scheduler_t *scheduler,
         return false;
     }
 
-    // If output pin is shared with AD9850 FQ_UD, AD9850 init/serial-enable can
-    // leave the pin mapped to SIO. Re-apply output-compare pin function here.
+    // Re-apply the PIO pin function if AD9850 setup temporarily switched it to SIO.
     scheduler_init_output_compare_sm(scheduler);
 
     scheduler_ensure_tx_irq_installed(config->output_compare_pio);
@@ -570,11 +564,10 @@ bool scheduler_arm(scheduler_t *scheduler)
         return false;
     }
 
-    // Reinitialize output-compare SM on each ARM so stale trigger edges seen
-    // during IDLE/PREPARE cannot leave it blocked on pull in continuous_loop.
+    // Start each run from a clean output-compare state.
     scheduler_init_output_compare_sm(scheduler);
 
-    // Re-arm alarm timer SM from a known clean state each run.
+    // Start each run from a clean alarm-timer state as well.
     pio_sm_set_enabled(scheduler->cfg.alarm_timer_pio, scheduler->cfg.alarm_timer_sm, false);
     pio_sm_clear_fifos(scheduler->cfg.alarm_timer_pio, scheduler->cfg.alarm_timer_sm);
     pio_sm_restart(scheduler->cfg.alarm_timer_pio, scheduler->cfg.alarm_timer_sm);

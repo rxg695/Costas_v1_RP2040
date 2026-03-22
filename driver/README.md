@@ -1,37 +1,25 @@
 # Driver Modules
 
-This folder contains reusable PIO-based driver modules shared by both production and validation builds.
+This directory holds the reusable hardware-facing pieces shared by the normal and validation builds.
 
-## Structure
+## Included drivers
 
-- `CMakeLists.txt` — aggregates driver manifests and exports shared source/PIO lists.
-- `<driver_name>/driver_manifest.cmake` — per-driver manifest consumed by `driver/CMakeLists.txt`.
+- [pio_timer_input_capture/README.md](pio_timer_input_capture/README.md): measures the time between a start edge and a stop edge
+- [pio_timer_output_compare/README.md](pio_timer_output_compare/README.md): emits a delayed pulse after a trigger
+- [pio_alarm_timer/README.md](pio_alarm_timer/README.md): command-driven timer with PPS-based rearm behavior
+- [ad9850_driver/README.md](ad9850_driver/README.md): AD9850 transport over RP2040 SPI
 
-Current drivers:
-
-- [pio_timer_input_capture](pio_timer_input_capture/README.md)
-  - Measures elapsed time between configurable start/stop input edges.
-- [pio_timer_output_compare](pio_timer_output_compare/README.md)
-  - Schedules output pulses from trigger events with programmable delay and pulse width.
-- [pio_alarm_timer](pio_alarm_timer/README.md)
-  - Experimental command-driven PIO alarm timer with RX FIFO event reporting.
-- [ad9850_driver](ad9850_driver/README.md)
-  - Low-level AD9850 driver using RP2040 hardware SPI peripheral.
+Together these modules provide the low-level timing and DDS control pieces used by the scheduler layer in [src/scheduler/README.md](../src/scheduler/README.md).
 
 ## Build integration
 
-Top-level CMake includes this folder via `add_subdirectory(driver)` and consumes:
+Each driver directory provides a `driver_manifest.cmake` file. `driver/CMakeLists.txt` includes those manifests and collects the exported source files and `.pio` files into the lists used by the top-level build.
 
-- `DRIVER_SOURCES`
-- `DRIVER_PIO_FILES`
+## Adding a driver
 
-These are treated as shared driver assets in all build modes.
+1. Create `driver/<name>/`.
+2. Add the implementation, header, and any `.pio` file.
+3. Export them from `driver_manifest.cmake`.
+4. Include that manifest from `driver/CMakeLists.txt`.
 
-## Adding a new driver
-
-1. Create a new `driver/<name>/` folder.
-2. Add implementation and PIO files.
-3. Add `<name>/driver_manifest.cmake` setting:
-   - `DRIVER_MODULE_SOURCES`
-   - `DRIVER_MODULE_PIO_FILES`
-4. Include the manifest from `driver/CMakeLists.txt` and append to aggregate lists.
+Keep new drivers focused on hardware behavior. Scheduling policy and mission logic belong higher in the tree.

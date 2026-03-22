@@ -18,14 +18,12 @@ void pio_timer_input_capture_init(pio_timer_input_capture_t *capture,
     capture->sm_clk_hz = sm_clk_hz;
     capture->timeout_ns = timeout_ns;
 
-    // PIO count loop takes 2 cycles/iteration. Convert timeout ns -> loop count.
+    // The PIO loop consumes two state-machine cycles per decrement.
     uint64_t timeout_loops_64 = ((uint64_t) timeout_ns * sm_clk_hz) / 2000000000ull;
     capture->timeout_loops = (uint32_t) timeout_loops_64;
 
-    // Load PIO program into instruction memory.
     capture->offset = pio_add_program(pio, &pio_timer_input_capture_program);
 
-    // Assign start/stop pins to PIO control and set them as inputs.
     pio_gpio_init(pio, start_pin);
     pio_gpio_init(pio, stop_pin);
     gpio_set_dir(start_pin, GPIO_IN);
@@ -33,18 +31,14 @@ void pio_timer_input_capture_init(pio_timer_input_capture_t *capture,
     pio_sm_set_consecutive_pindirs(pio, sm, start_pin, 1, false);
     pio_sm_set_consecutive_pindirs(pio, sm, stop_pin, 1, false);
 
-    // Build SM config for capture program.
     pio_sm_config config = pio_timer_input_capture_program_get_default_config(capture->offset);
     float clkdiv = (float) clock_get_hz(clk_sys) / (float) sm_clk_hz;
     sm_config_set_clkdiv(&config, clkdiv);
 
-    // WAIT PIN 0 samples start_pin through IN base mapping.
     sm_config_set_in_pins(&config, start_pin);
 
-    // JMP PIN samples stop_pin.
     sm_config_set_jmp_pin(&config, stop_pin);
 
-    // Initialize state machine and provide timeout loop count via TX FIFO.
     pio_sm_init(pio, sm, capture->offset, &config);
     pio_sm_put_blocking(pio, sm, capture->timeout_loops);
     pio_sm_set_enabled(pio, sm, true);

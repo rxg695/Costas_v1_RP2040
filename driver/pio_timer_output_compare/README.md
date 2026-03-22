@@ -1,126 +1,109 @@
-# PIO Timer Output Compare Driver
+# PIO Timer Output Compare
 
-This driver schedules a programmable output pulse after a trigger edge using a PIO state machine.
+Driver for generating a pulse after a trigger edge using a PIO state machine.
 
-- Trigger event: rising edge on `trigger_pin`
-- Compare value: host-provided countdown ticks
-- Pulse width: host-provided high-time ticks
-- Output action: set output high, hold for pulse ticks, then low
+## What it does
 
-## Files
+- waits for a rising edge on `trigger_pin`
+- counts down a host-supplied delay
+- drives `output_pin` high for a host-supplied pulse width
+- returns to idle or keeps consuming queued events in continuous mode
 
-- `pio_timer_output_compare.h` — public C API
-- `pio_timer_output_compare.c` — driver implementation
-- `pio_timer_output_compare.pio` — PIO program
-- `driver_manifest.cmake` — build manifest for driver aggregation
+## Public types and constants
 
-## API
+### `pio_timer_output_compare_mode_t`
+
+- `PIO_TIMER_OUTPUT_COMPARE_MODE_ONE_SHOT`
+- `PIO_TIMER_OUTPUT_COMPARE_MODE_CONTINUOUS`
+
+### Queue-related constants
+
+- `PIO_TIMER_OUTPUT_COMPARE_TX_FIFO_WORDS = 8`
+- `PIO_TIMER_OUTPUT_COMPARE_WORDS_PER_EVENT = 2`
+- `PIO_TIMER_OUTPUT_COMPARE_STOP_COMPARE_TICKS = 0`
+
+The driver joins the FIFO for TX use, so one event always consumes two words: delay first, pulse width second.
+
+## Modes
+
+- one-shot: each arm request produces one trigger-to-pulse event
+- continuous: the PIO program consumes a stream of `(compare_ticks, pulse_ticks)` pairs until it sees the stop sentinel
+
+Continuous mode is the path intended for low-jitter symbol timing because the CPU no longer has to re-arm the state machine for every edge.
+
+## API reference
 
 ### `pio_timer_output_compare_init(...)`
-Initializes one PIO state machine instance for output compare.
 
-- `output_pin` — runtime-configurable output pin controlled via `SET PINS`
-- `sm_clk_hz` — state machine clock frequency
-- `mode` — one-shot or continuous stream mode
+Initializes one state machine with:
+
+- the selected PIO block and SM index
+- a loaded program offset
+- runtime-selected trigger and output pins
+- a requested state-machine clock
+- the desired playback mode
+
+The driver configures the output pin through `SET PINS` and maps the trigger pin through the SM input base.
 
 ### `pio_timer_output_compare_arm(...)`
-- `compare_ticks` is the number of countdown loop iterations before pulse start.
-- `pulse_ticks` is the number of loop iterations to hold the output high.
-- In one-shot mode, two TX words arm one trigger->pulse cycle.
-- In continuous mode, this appends one scheduled event to the active stream.
+
+Queues one event. In one-shot mode this means “arm the next trigger.” In continuous mode it is just an alias for queueing one more event in the stream.
 
 ### `pio_timer_output_compare_queue_event(...)`
-- Explicit helper for continuous mode event enqueue.
-- Event format is `(compare_ticks, pulse_ticks)`.
+
+Blocking enqueue of one `(compare_ticks, pulse_ticks)` pair.
+
+### `pio_timer_output_compare_try_queue_event(...)`
+
+Non-blocking enqueue helper. Returns `false` if there is not enough room for both words.
 
 ### `pio_timer_output_compare_queue_stop(...)`
-- Continuous-mode stream terminator.
-- Internally emits stop sentinel pair `(compare_ticks=0, pulse_ticks=0)`.
+
+Queues the stop sentinel used in continuous mode. When the PIO program consumes it, playback ends and the SM returns to waiting for the next trigger edge.
+
+### `pio_timer_output_compare_try_queue_stop(...)`
+
+Non-blocking version of the stop helper.
+
+### `pio_timer_output_compare_ns_to_ticks(...)`
+
+Converts nanoseconds to state-machine ticks using the requested SM clock. This helper is suitable for setup code and validation tools, but the caller still needs to account for fixed PIO overhead if sub-cycle accuracy matters.
 
 ## Timing model
 
-The compare delay loop is:
+Both the delay and pulse width are expressed in state-machine loop ticks. In practice:
 
-- `jmp x-- compare_count`
+- delay is approximately `compare_ticks / sm_clk_hz`
+- pulse width is approximately `pulse_ticks / sm_clk_hz`
 
-The pulse hold loop is:
+There is still fixed overhead around trigger detection and pin updates, so treat the conversion helpers as setup aids, not exact cycle-level proofs.
 
-- `jmp y-- pulse_count`
+## FIFO limits
 
-One decrement happens per loop iteration in each loop. Timing is approximately:
+The driver joins the FIFOs for TX use, which gives 8 words on RP2040. Each queued event consumes 2 words, so four full events fit before the host has to feed more data.
 
-- delay ≈ `compare_ticks / sm_clk_hz` seconds
-- pulse width ≈ `pulse_ticks / sm_clk_hz` seconds
+## Typical usage
 
-(plus fixed program overhead around edge detect and pin update instructions).
+### One-shot use
 
-## PIO behavior summary
+1. initialize the state machine
+2. convert the desired delay and pulse width to ticks
+3. call `pio_timer_output_compare_arm(...)`
+4. drive the trigger pin and observe the resulting pulse
 
-1. Hold output low while idle.
-2. Pull `compare_ticks` from TX FIFO.
-3. Pull `pulse_ticks` from TX FIFO.
-4. Wait for clean trigger rising edge (`wait 0 pin 0`, then `wait 1 pin 0`).
-5. Count down compare ticks.
-6. Drive output high.
-7. Count down pulse width ticks.
-8. Drive output low.
-9. Return to idle and wait for next arm.
+### Continuous use
 
-## Notes
+1. initialize the state machine in continuous mode
+2. queue the event stream
+3. optionally keep feeding events as FIFO space becomes available
+4. queue the stop sentinel when the sequence should end
 
-- Trigger pin is selected by mapping PIO IN base in SM config.
-- Pulse width is API-configurable per armed event.
-- SM config joins FIFO to TX-only, giving 8 TX words (4 full events queued) on RP2040.
-- Include path from app code:
-  - `#include "driver/pio_timer_output_compare/pio_timer_output_compare.h"`
+## Limits
 
-## Continuous scheduling concept (for sub-µs symbol timing)
+`compare_ticks` and `pulse_ticks` are 32-bit values. Very long delays are possible at low state-machine clocks, but any conversion from nanoseconds must still fit in `uint32_t`.
 
-For Costas symbol timing with low jitter, this module can be evolved into two operating modes:
+## Integration notes
 
-- **One-shot mode** (current behavior):
-  - wait for trigger edge
-  - consume one `(compare_ticks, pulse_ticks)` pair
-  - emit one pulse
-- **Continuous mode** (proposed):
-  - arm once from PPS
-  - consume successive delta/event words from TX FIFO
-  - emit pulse per scheduled event until explicit stop command
-
-This keeps orchestration in software while keeping inter-symbol timing in hardware (PIO + optional DMA feed), avoiding CPU re-arm jitter in tight loops.
-
-## Counter range, overflow, and maximum supported timings
-
-The compare and pulse counters are 32-bit values (`uint32_t`), so each per-event delay and per-event pulse width is limited by:
-
-- `max_ticks = 2^32 - 1 = 4,294,967,295`
-
-With state machine clock `sm_clk_hz`, the per-field maximum duration is:
-
-- `max_duration_s = max_ticks / sm_clk_hz`
-- `max_duration_ns = floor(max_ticks * 1e9 / sm_clk_hz)`
-
-### Practical maxima per event
-
-- `sm_clk_hz = 125,000,000` -> max per delay/pulse `~34.359738 s`
-- `sm_clk_hz = 100,000,000` -> max per delay/pulse `~42.949673 s`
-- `sm_clk_hz = 10,000,000` -> max per delay/pulse `~429.496730 s` (`~7.16 min`)
-- `sm_clk_hz = 1,000,000` -> max per delay/pulse `~4294.967295 s` (`~71.58 min`)
-
-### `ns_to_ticks` overflow boundary
-
-`pio_timer_output_compare_ns_to_ticks()` computes:
-
-- `ticks = (duration_ns * sm_clk_hz) / 1e9`
-
-and returns `uint32_t`.
-
-So `duration_ns` must satisfy:
-
-- `duration_ns <= floor((2^32 - 1) * 1e9 / sm_clk_hz)`
-
-Above that, cast-to-`uint32_t` truncation occurs and timing wraps.
-
-### Sequence-level limit in continuous mode
-
-In continuous mode, the **per-event** limit remains 32-bit as above, but total sequence length can be much longer as long as FIFO/DMA keeps feeding the next event before underflow.
+- The driver does not own DMA or refill policy. Higher-level code must keep the FIFO fed in continuous mode.
+- `compare_ticks = 0` is reserved for the stop sentinel in continuous mode, so callers should not use it as a normal event marker there.
+- The same API is used by both simple validation code and the scheduler, which is why both blocking and non-blocking queue helpers exist.

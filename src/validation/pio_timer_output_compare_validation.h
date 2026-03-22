@@ -5,6 +5,9 @@
 
 #include "pico/stdlib.h"
 
+/**
+ * @brief Configuration for the output-compare validation loop.
+ */
 typedef struct {
     uint pio_index;
     uint sm;
@@ -16,8 +19,9 @@ typedef struct {
     uint32_t pulse_ns;
 } pio_timer_output_compare_validation_config_t;
 
-// Runs output-compare validation until user requests stop over USB CDC.
-// Returns to caller when user presses 'q'.
+/**
+ * @brief Runs the output-compare validation loop until the user exits.
+ */
 void pio_timer_output_compare_validation_run(const pio_timer_output_compare_validation_config_t *config);
 
 #endif

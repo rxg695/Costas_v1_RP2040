@@ -13,8 +13,6 @@ static bool queue_pair_if_room(PIO pio,
                                uint32_t compare_ticks,
                                uint32_t pulse_ticks)
 {
-    // Driver config joins FIFO to TX, giving 8 words total.
-    // One event uses 2 words => require at least 2 free words.
     const uint tx_fifo_capacity_words = 8u;
     uint tx_level = pio_sm_get_tx_fifo_level(pio, sm);
     if (tx_level > (tx_fifo_capacity_words - 2u)) {
@@ -25,6 +23,25 @@ static bool queue_pair_if_room(PIO pio,
     pio_sm_put(pio, sm, pulse_ticks);
     return true;
 }
+
+    static void print_output_compare_status(bool continuous_mode,
+                             uint32_t compare_ns,
+                             uint32_t compare_ticks,
+                             uint32_t pulse_ns,
+                             uint32_t pulse_ticks,
+                             uint32_t armed_count)
+    {
+        printf("Status:\n");
+        printf("  Mode: %s\n", continuous_mode ? "continuous stream" : "one-shot");
+        printf("  Delay: %lu ns (%lu ticks)\n",
+            (unsigned long) compare_ns,
+            (unsigned long) compare_ticks);
+        printf("  Pulse width: %lu ns (%lu ticks)\n",
+            (unsigned long) pulse_ns,
+            (unsigned long) pulse_ticks);
+        printf("  Events queued or armed this run: %lu\n",
+            (unsigned long) armed_count);
+    }
 
 void pio_timer_output_compare_validation_run(const pio_timer_output_compare_validation_config_t *config)
 {
@@ -58,22 +75,22 @@ void pio_timer_output_compare_validation_run(const pio_timer_output_compare_vali
     }
 
     printf("\nOutput compare validation active\n");
-    printf("PIO%u SM%u trigger=GP%u output=GP%u sm_clk=%lu Hz\n",
+    printf("PIO%u SM%u trigger=GP%u output=GP%u state-machine clock=%lu Hz\n",
            config->pio_index,
            config->sm,
            config->trigger_pin,
            config->output_pin,
            (unsigned long) config->sm_clk_hz);
-    printf("mode=%s\n", config->continuous_mode ? "continuous" : "one-shot");
-    printf("compare=%lu ns (%lu ticks), pulse=%lu ns (%lu ticks)\n",
+    printf("mode=%s\n", config->continuous_mode ? "continuous stream" : "one-shot");
+    printf("delay=%lu ns (%lu ticks), pulse=%lu ns (%lu ticks)\n",
            (unsigned long) config->compare_ns,
            (unsigned long) compare_ticks,
            (unsigned long) config->pulse_ns,
            (unsigned long) pulse_ticks);
     if (config->continuous_mode) {
-        printf("Press 'a' to queue 1 event, '4' to queue 4 events, 's' to queue stop, 'q' to return to menu\n");
+        printf("Commands: a=queue one event, 4=queue four events, s=queue stop marker, i=show status, q=return\n");
     } else {
-        printf("Press 'a' to arm one event, 'q' to return to menu\n");
+        printf("Commands: a=arm one event, i=show status, q=return\n");
     }
 
     uint32_t armed_count = 0;
@@ -87,14 +104,14 @@ void pio_timer_output_compare_validation_run(const pio_timer_output_compare_vali
         if (ch == 'a' || ch == 'A') {
             if (config->continuous_mode) {
                 if (!queue_pair_if_room(pio, config->sm, compare_ticks, pulse_ticks)) {
-                    printf("TX FIFO full, trigger/consume events then retry\n");
+                    printf("TX FIFO is full. Trigger the pending events, then try again.\n");
                     continue;
                 }
             } else {
                 pio_timer_output_compare_arm(pio, config->sm, compare_ticks, pulse_ticks);
             }
             armed_count++;
-            printf("queued=%lu\n", (unsigned long) armed_count);
+            printf("Queued or armed event count: %lu\n", (unsigned long) armed_count);
         } else if ((ch == '4') && config->continuous_mode) {
             uint32_t queued_now = 0;
             for (uint32_t index = 0; index < 4u; ++index) {
@@ -104,28 +121,38 @@ void pio_timer_output_compare_validation_run(const pio_timer_output_compare_vali
                 queued_now++;
                 armed_count++;
             }
-            printf("queued_now=%lu total_queued=%lu\n",
+                 printf("Queued burst:\n");
+                 printf("  Added now: %lu\n",
                    (unsigned long) queued_now,
-                   (unsigned long) armed_count);
+                     (unsigned long) queued_now);
+                 printf("  Total queued: %lu\n",
+                     (unsigned long) armed_count);
             if (queued_now < 4u) {
-                printf("TX FIFO capacity reached before 4 events; trigger/consume then queue remaining\n");
+                printf("Only part of the burst fit in the TX FIFO. Trigger or drain events, then queue the rest.\n");
             }
         } else if ((ch == 's' || ch == 'S') && config->continuous_mode) {
             if (!queue_pair_if_room(pio,
                                     config->sm,
                                     PIO_TIMER_OUTPUT_COMPARE_STOP_COMPARE_TICKS,
                                     0u)) {
-                printf("TX FIFO full, could not queue stop command\n");
+                printf("TX FIFO is full, so the stop marker could not be queued yet.\n");
                 continue;
             }
-            printf("stop queued\n");
+            printf("Stop marker queued.\n");
+        } else if (ch == 'i' || ch == 'I') {
+            print_output_compare_status(config->continuous_mode,
+                                        config->compare_ns,
+                                        compare_ticks,
+                                        config->pulse_ns,
+                                        pulse_ticks,
+                                        armed_count);
         } else if (ch == 'q' || ch == 'Q') {
             if (config->continuous_mode) {
                 if (!queue_pair_if_room(pio,
                                         config->sm,
                                         PIO_TIMER_OUTPUT_COMPARE_STOP_COMPARE_TICKS,
                                         0u)) {
-                    printf("TX FIFO full, stop not queued on exit\n");
+                    printf("TX FIFO is full, so the stop marker was not queued on exit.\n");
                 }
             }
             printf("Leaving output compare validation\n");

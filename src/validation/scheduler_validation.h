@@ -4,6 +4,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/**
+ * @brief Configuration shared across scheduler validation modes.
+ */
 typedef struct {
     uint output_compare_pio_index;
     uint alarm_timer_pio_index;
@@ -31,6 +34,9 @@ typedef struct {
     int32_t load_offset_us;
 } scheduler_validation_config_t;
 
+/**
+ * @brief Runs the interactive scheduler validation submenu.
+ */
 void scheduler_validation_run(const scheduler_validation_config_t *config);
 
 #endif

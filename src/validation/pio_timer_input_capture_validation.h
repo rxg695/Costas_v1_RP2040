@@ -6,6 +6,9 @@
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 
+/**
+ * @brief Configuration for the input-capture validation loop.
+ */
 typedef struct {
 	uint start_pin;
 	uint stop_pin;
@@ -16,9 +19,9 @@ typedef struct {
 	uint sm;
 } pio_timer_input_capture_validation_config_t;
 
-// Runs input-capture validation until user requests stop over USB CDC.
-// Returns to caller when user presses 'q'.
-// Requires stdio to be initialized by the caller.
+/**
+ * @brief Runs the input-capture validation loop until the user exits.
+ */
 void pio_timer_input_capture_validation_run(const pio_timer_input_capture_validation_config_t *config);
 
 #endif

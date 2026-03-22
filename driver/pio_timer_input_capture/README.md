@@ -1,70 +1,76 @@
-# PIO Timer Input Capture Driver
+# PIO Timer Input Capture
 
-This driver measures elapsed time between two GPIO rising edges using a PIO state machine.
+Driver for measuring the time between a start edge and a stop edge with one PIO state machine.
 
-- Start event: rising edge on `start_pin`
-- Stop event: rising edge on `stop_pin`
-- Output: elapsed timer ticks (or timeout)
+## What it measures
 
-## Files
+- start condition: rising edge on `start_pin`
+- stop condition: rising edge on `stop_pin`
+- result: elapsed ticks or a timeout sentinel
 
-- `pio_timer_input_capture.h` — public C API
-- `pio_timer_input_capture.c` — driver implementation
-- `pio_timer_input_capture.pio` — PIO program
-- `driver_manifest.cmake` — build manifest for driver aggregation
+## Public types and constants
 
-## API
+### `PIO_TIMER_INPUT_CAPTURE_TIMEOUT_SENTINEL`
+
+Raw RX value used by the PIO program to report a timeout.
+
+### `pio_timer_input_capture_t`
+
+Per-instance runtime state. This struct stores the selected PIO block, state machine, pins, configured clock, timeout window, and derived timeout loop count.
+
+## API reference
 
 ### `pio_timer_input_capture_init(...)`
-Initializes one PIO state machine instance for capture.
 
-Parameters:
-- `capture` — persistent driver context
-- `pio`, `sm` — target PIO block and state machine index
-- `start_pin`, `stop_pin` — runtime-configurable input pins
-- `sm_clk_hz` — state machine clock frequency
-- `timeout_ns` — timeout window per measurement
+Initializes the state machine, loads the PIO program, configures the two input pins, computes the timeout loop count, and starts the state machine.
+
+Parameters that matter most:
+
+- `start_pin`: rising edge that starts the measurement
+- `stop_pin`: rising edge that ends the measurement
+- `sm_clk_hz`: timing base for the loop counter
+- `timeout_ns`: maximum measurement window before a timeout is reported
 
 ### `pio_timer_input_capture_poll(...)`
+
 Non-blocking poll for one capture result.
 
-- Returns `false` if RX FIFO has no result yet.
-- Returns `true` when a result is available.
-- On timeout, `timed_out=true` and `elapsed_ticks=0`.
-- On valid capture, `timed_out=false` and `elapsed_ticks` is filled.
+When it returns `true`:
+
+- `timed_out = true` means no stop edge arrived before the timeout
+- `timed_out = false` means `elapsed_ticks` contains the measured interval
 
 ### `pio_timer_input_capture_ticks_to_ns(...)`
-Converts captured ticks to nanoseconds based on configured `sm_clk_hz`.
 
-## Timing model
+Converts reported ticks into nanoseconds using the configured clock and the known loop structure.
 
-The count loop in PIO is:
+## How timing is counted
 
-- `jmp pin got_stop`
-- `jmp x-- count_loop`
+The capture loop uses two state-machine cycles per decrement, so one reported tick corresponds to:
 
-This loop consumes 2 SM cycles per decrement, so:
+- `2 / sm_clk_hz` seconds
 
-- tick period = `2 / sm_clk_hz` seconds
-- elapsed time (ns) = `ticks * 2e9 / sm_clk_hz`
+`pio_timer_input_capture_ticks_to_ns(...)` applies that conversion for the configured instance.
 
-Timeout loop count is derived as:
+## Runtime behavior
 
-- `timeout_loops = timeout_ns * sm_clk_hz / 2e9`
+1. load the timeout count once during initialization
+2. wait for a clean start edge
+3. count until the stop edge arrives or the timeout expires
+4. push the result to the RX FIFO
+5. wait for the stop pin to return low before re-arming
 
-## PIO behavior summary
+## Typical usage
 
-1. Pull timeout loop count from TX FIFO once at startup.
-2. Wait for clean rising edge on start pin (`wait 0 pin 0`, then `wait 1 pin 0`).
-3. Count down until stop pin rises (`jmp pin`) or timeout expires.
-4. Push result to RX FIFO:
-   - remaining counter on success
-   - `0xffffffff` timeout sentinel on timeout
-5. Re-arm only after stop pin returns low.
+1. initialize the capture instance
+2. poll for results in the main loop or a dedicated task
+3. convert successful results to nanoseconds as needed
+4. track timeout rate separately from valid captures
 
-## Notes
+This driver is meant to be polled from firmware or exercised through the validation build while checking timing with a known signal source.
 
-- Driver assumes one-time initialization per SM and continuous polling in main loop.
-- Avoid reusing the same SM for another program unless disabled/reinitialized.
-- Include path from app code:
-  - `#include "driver/pio_timer_input_capture/pio_timer_input_capture.h"`
+## Integration notes
+
+- Initialization currently loads the PIO program itself, so repeated setup on the same PIO block must be managed carefully.
+- The driver assumes exclusive use of the selected state machine.
+- Timeout statistics are often as useful as the measured intervals; if captures are missing entirely, look at signal integrity and edge conditioning before blaming jitter.

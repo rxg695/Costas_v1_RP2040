@@ -4,24 +4,31 @@
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 
+/**
+ * @brief Operating mode for the output-compare state machine.
+ */
 typedef enum {
     PIO_TIMER_OUTPUT_COMPARE_MODE_ONE_SHOT = 0,
     PIO_TIMER_OUTPUT_COMPARE_MODE_CONTINUOUS = 1,
 } pio_timer_output_compare_mode_t;
 
-// Public queue sizing constants for firmware schedulers.
-// Driver config uses PIO FIFO TX join mode on RP2040.
+/** Number of TX words available when the FIFO is joined for TX use. */
 #define PIO_TIMER_OUTPUT_COMPARE_TX_FIFO_WORDS 8u
+/** Number of words consumed by one queued event. */
 #define PIO_TIMER_OUTPUT_COMPARE_WORDS_PER_EVENT 2u
 
-// Special compare value used only in continuous mode to stop event playback.
+/** Compare value reserved for the continuous-mode stop sentinel. */
 #define PIO_TIMER_OUTPUT_COMPARE_STOP_COMPARE_TICKS 0u
 
-// Initializes the pio_timer_output_compare PIO state machine.
-// - trigger pin is selected at runtime
-// - output pin is selected at runtime and driven by SET PINS
-// - sm_clk_hz selects timing resolution
-// - mode selects one-shot trigger mode or continuous PPS-gated event stream mode
+/**
+ * @brief Initializes the output-compare state machine.
+ *
+ * @param offset Offset returned when the PIO program was loaded.
+ * @param trigger_pin Pin used as the trigger input.
+ * @param output_pin Pin driven high for the generated pulse.
+ * @param sm_clk_hz Requested state-machine clock.
+ * @param mode One-shot or continuous playback mode.
+ */
 void pio_timer_output_compare_init(PIO pio,
                                    uint sm,
                                    uint offset,
@@ -30,42 +37,47 @@ void pio_timer_output_compare_init(PIO pio,
                                    float sm_clk_hz,
                                    pio_timer_output_compare_mode_t mode);
 
-// Arms one output-compare event.
-// - compare_ticks is the number of countdown loop iterations before pulse start
-// - pulse_ticks is the high-time loop count for pulse duration
-// - in one-shot mode: event fires on next trigger edge
-// - in continuous mode: event is appended to current stream
+/**
+ * @brief Arms one event in one-shot mode or appends one event in continuous mode.
+ */
 void pio_timer_output_compare_arm(PIO pio,
                                   uint sm,
                                   uint32_t compare_ticks,
                                   uint32_t pulse_ticks);
 
-// Enqueues one event in continuous mode.
-// compare_ticks uses delta from previous event (or PPS edge for first event).
+/**
+ * @brief Enqueues one event in continuous mode.
+ */
 void pio_timer_output_compare_queue_event(PIO pio,
                                           uint sm,
                                           uint32_t compare_ticks,
                                           uint32_t pulse_ticks);
 
-// Attempts to enqueue one event in continuous mode without blocking.
-// Returns false when there is insufficient TX FIFO space for both words.
+/**
+ * @brief Non-blocking version of @ref pio_timer_output_compare_queue_event.
+ *
+ * @return true when both words were queued, false if the TX FIFO lacked room.
+ */
 bool pio_timer_output_compare_try_queue_event(PIO pio,
                                               uint sm,
                                               uint32_t compare_ticks,
                                               uint32_t pulse_ticks);
 
-// Enqueues a stop command in continuous mode.
-// When consumed, playback stops and waits for the next trigger edge.
+/**
+ * @brief Enqueues the continuous-mode stop sentinel.
+ */
 void pio_timer_output_compare_queue_stop(PIO pio,
                                          uint sm);
 
-// Attempts to enqueue stream stop command in continuous mode without blocking.
-// Returns false when there is insufficient TX FIFO space for both stop words.
+/**
+ * @brief Non-blocking version of @ref pio_timer_output_compare_queue_stop.
+ */
 bool pio_timer_output_compare_try_queue_stop(PIO pio,
                                              uint sm);
 
-// Converts nanoseconds to output-compare ticks for a given SM clock.
-// Helper applies to both compare delay and pulse width tick values.
+/**
+ * @brief Converts nanoseconds to state-machine ticks.
+ */
 uint32_t pio_timer_output_compare_ns_to_ticks(uint32_t sm_clk_hz,
                                               uint64_t duration_ns);
 

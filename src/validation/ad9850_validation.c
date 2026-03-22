@@ -25,7 +25,7 @@ static void print_frame_spi_order_binary(const ad9850_frame_t *frame)
         return;
     }
 
-    printf("spi_bytes_bin b0=");
+    printf("Frame bits: b0=");
     print_byte_binary(frame->bytes[0]);
     printf(" b1=");
     print_byte_binary(frame->bytes[1]);
@@ -43,18 +43,20 @@ static void print_status(uint32_t frequency_hz,
                          uint8_t phase,
                          bool power_down,
                          uint32_t ftw,
-                                 const ad9850_frame_t *frame,
-                                 bool serial_enabled,
-                                 bool nb_busy)
+                const ad9850_frame_t *frame,
+                bool serial_enabled,
+                bool nb_busy)
 {
-     printf("ad9850_status freq=%lu step=%lu phase=%u power_down=%u serial_enabled=%u nb_busy=%u ftw=0x%08lx\n",
-           (unsigned long) frequency_hz,
-           (unsigned long) step_hz,
-           (unsigned) phase,
-           power_down ? 1u : 0u,
-              serial_enabled ? 1u : 0u,
-              nb_busy ? 1u : 0u,
-           (unsigned long) ftw);
+    printf("Status:\n");
+    printf("  Frequency: %lu Hz   Step: %lu Hz   Phase: %u\n",
+        (unsigned long) frequency_hz,
+        (unsigned long) step_hz,
+        (unsigned) phase);
+    printf("  Power-down: %s   Serial enabled: %s   Non-blocking busy: %s\n",
+        power_down ? "yes" : "no",
+        serial_enabled ? "yes" : "no",
+        nb_busy ? "yes" : "no");
+    printf("  FTW: 0x%08lx\n", (unsigned long) ftw);
 
     if (frame != NULL) {
         print_frame_spi_order_binary(frame);
@@ -91,7 +93,7 @@ void ad9850_validation_run(const ad9850_validation_config_t *config)
     };
 
     if (!ad9850_driver_init(&driver, &driver_cfg)) {
-        printf("ad9850 init failed\n");
+        printf("AD9850 initialization failed.\n");
         return;
     }
 
@@ -105,7 +107,7 @@ void ad9850_validation_run(const ad9850_validation_config_t *config)
     uint32_t nb_complete_fail_count = 0u;
 
     printf("\nAD9850 validation active\n");
-    printf("spi=%s baud=%lu sck=GP%u mosi=GP%u fqud=%s(GP%u) reset=%s(GP%u) sysclk=%lu\n",
+    printf("SPI=%s baud=%lu Hz SCK=GP%u MOSI=GP%u FQ_UD=%s(GP%u) RESET=%s(GP%u) sysclk=%lu Hz\n",
            spi == spi0 ? "spi0" : "spi1",
            (unsigned long) spi_baud_hz,
            config->sck_pin,
@@ -115,10 +117,13 @@ void ad9850_validation_run(const ad9850_validation_config_t *config)
            config->use_reset_pin ? "on" : "off",
            config->reset_pin,
            (unsigned long) dds_sysclk_hz);
-    printf("commands: a=apply w=write p=pulse_fqud r=reset e=serial_enable n=nb_apply m=nb_apply_latch v=nb_service b=nb_busy x=nb_stats +=freq_up -=freq_down d=toggle_pd s=status q=return\n");
+    printf("Commands: e=serial enable, a=write+latch, w=write only, p=pulse FQ_UD, r=reset\n");
+    printf("          n=start non-blocking write, m=start non-blocking write+latch, v=service once\n");
+    printf("          b=show busy flag, x=show non-blocking counters, +=freq up, -=freq down\n");
+    printf("          d=toggle power-down, s=show status, q=return\n");
 
     if (!frame_ok) {
-        printf("initial frame build failed\n");
+        printf("Initial frame build failed.\n");
     } else {
         print_status(frequency_hz,
                      step_hz,
@@ -139,7 +144,7 @@ void ad9850_validation_run(const ad9850_validation_config_t *config)
             } else {
                 nb_complete_fail_count++;
             }
-            printf("nb_complete=%s\n", nb_success ? "ok" : "failed");
+            printf("Non-blocking transfer completed: %s\n", nb_success ? "ok" : "failed");
         }
 
         int ch = getchar_timeout_us(0);
@@ -150,19 +155,19 @@ void ad9850_validation_run(const ad9850_validation_config_t *config)
 
         if (ch == 'a' || ch == 'A') {
             bool ok = frame_ok && ad9850_driver_apply_frame_blocking(&driver, &frame, config->use_fqud_pin);
-            printf("apply=%s\n", ok ? "ok" : "failed");
+            printf("Write + latch: %s\n", ok ? "ok" : "failed");
         } else if (ch == 'w' || ch == 'W') {
             bool ok = frame_ok && ad9850_driver_write_frame_blocking(&driver, &frame);
-            printf("write=%s\n", ok ? "ok" : "failed");
+            printf("Write only: %s\n", ok ? "ok" : "failed");
         } else if (ch == 'p' || ch == 'P') {
             bool ok = ad9850_driver_pulse_fqud(&driver);
-            printf("pulse_fqud=%s\n", ok ? "ok" : "failed_or_disabled");
+            printf("Pulse FQ_UD: %s\n", ok ? "ok" : "failed_or_disabled");
         } else if (ch == 'r' || ch == 'R') {
             bool ok = ad9850_driver_reset(&driver);
-            printf("reset=%s\n", ok ? "ok" : "failed_or_disabled");
+            printf("Reset: %s\n", ok ? "ok" : "failed_or_disabled");
         } else if (ch == 'e' || ch == 'E') {
             bool ok = ad9850_driver_serial_enable(&driver);
-            printf("serial_enable=%s\n", ok ? "ok" : "failed");
+            printf("Serial enable: %s\n", ok ? "ok" : "failed");
         } else if (ch == 'n' || ch == 'N') {
             bool ok = frame_ok && ad9850_driver_start_apply_nonblocking(&driver, &frame, false);
             if (ok) {
@@ -172,7 +177,7 @@ void ad9850_validation_run(const ad9850_validation_config_t *config)
             } else {
                 nb_start_fail_count++;
             }
-            printf("nb_apply=%s\n", ok ? "started" : (ad9850_driver_is_nonblocking_busy(&driver) ? "busy" : "failed"));
+            printf("Start non-blocking write: %s\n", ok ? "started" : (ad9850_driver_is_nonblocking_busy(&driver) ? "busy" : "failed"));
         } else if (ch == 'm' || ch == 'M') {
             bool ok = frame_ok && ad9850_driver_start_apply_nonblocking(&driver, &frame, config->use_fqud_pin);
             if (ok) {
@@ -182,14 +187,16 @@ void ad9850_validation_run(const ad9850_validation_config_t *config)
             } else {
                 nb_start_fail_count++;
             }
-            printf("nb_apply_latch=%s\n", ok ? "started" : (ad9850_driver_is_nonblocking_busy(&driver) ? "busy" : "failed"));
+            printf("Start non-blocking write + latch: %s\n", ok ? "started" : (ad9850_driver_is_nonblocking_busy(&driver) ? "busy" : "failed"));
         } else if (ch == 'v' || ch == 'V') {
             ad9850_driver_service_nonblocking(&driver);
-            printf("nb_service\n");
+            printf("Advanced the non-blocking transfer once.\n");
         } else if (ch == 'b' || ch == 'B') {
-            printf("nb_busy=%u\n", ad9850_driver_is_nonblocking_busy(&driver) ? 1u : 0u);
+            printf("Non-blocking transfer busy: %s\n",
+                   ad9850_driver_is_nonblocking_busy(&driver) ? "yes" : "no");
         } else if (ch == 'x' || ch == 'X') {
-            printf("nb_stats start_ok=%lu start_busy=%lu start_fail=%lu complete_ok=%lu complete_fail=%lu\n",
+            printf("Non-blocking counters:\n");
+            printf("  start_ok=%lu start_busy=%lu start_fail=%lu complete_ok=%lu complete_fail=%lu\n",
                    (unsigned long) nb_start_ok_count,
                    (unsigned long) nb_start_busy_count,
                    (unsigned long) nb_start_fail_count,

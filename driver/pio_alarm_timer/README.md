@@ -1,65 +1,109 @@
-# PIO Alarm Timer (Experimental)
+# PIO Alarm Timer
 
-This module implements a command-driven timer/alarm state machine in PIO.
+PIO-based timer that accepts alarm commands from the CPU and reports the result back through the RX FIFO.
 
-## Intent
+## What the module provides
 
-- Maintain a free-running 32-bit timer counter in one SM.
-- Consume command words from TX FIFO.
-- Emit result words to RX FIFO.
-- Use RX-not-empty interrupt on CPU side to service alarm outcomes.
-- Gate reset/rearm release on PPS rising edge (WAIT PIN 0).
+- one free-running timer inside a PIO state machine
+- a host-to-PIO command channel through the TX FIFO
+- a PIO-to-host result channel through the RX FIFO
+- optional RX IRQ callback dispatch in the driver layer
+- PPS-gated rearm behavior
 
-## Command/result contract
+## Command and result words
 
-Command words (CPU -> PIO TX FIFO):
+Commands sent by the host:
 
-- `0x00000000`: reset/rearm command
-- `T > 0`: alarm tick request
+- `0`: rearm and wait for the next PPS release
+- `T > 0`: schedule an alarm at tick `T`
 
-Startup requires an explicit first command from host (`pull block` at entry).
+Results returned by the PIO program:
 
-Result words (PIO -> CPU RX FIFO):
+- `0xFFFFFFFF`: rearm acknowledged
+- `0`: alarm was already late when it was evaluated
+- `T`: alarm fired at tick `T`
 
-- `0xFFFFFFFF`: reset/rearm ACK
-- `0x00000000`: late/missed alarm
-- `T`: successful alarm at tick `T`
+## Public types
 
-## Current implementation notes
+### `pio_alarm_timer_enqueue_status_t`
 
-- The core state machine is implemented in `pio_alarm_timer.pio`.
-- Counter reset + ACK behavior for `cmd==0` is implemented.
-- Reset/rearm path waits for PPS (`wait 0 pin`, `wait 1 pin`) before accepting alarms.
-- Alarm match push (`push T`) is implemented for future ticks.
-- Counter does not reset between alarm commands.
-- Strict in-PIO late classification (`T <= counter`) is limited by instruction budget and compare primitives; host API monotonic guard remains the primary protection against stale/descending commands.
+Return value used by `pio_alarm_timer_queue_alarm(...)`.
 
-## Build integration
+- `PIO_ALARM_TIMER_ENQUEUE_OK`: command accepted
+- `PIO_ALARM_TIMER_ENQUEUE_ERR_NOT_INIT`: driver not initialized
+- `PIO_ALARM_TIMER_ENQUEUE_ERR_ZERO_TICK`: `0` is reserved for rearm
+- `PIO_ALARM_TIMER_ENQUEUE_ERR_NON_MONOTONIC`: requested tick was lower than the last accepted one
+- `PIO_ALARM_TIMER_ENQUEUE_ERR_TX_FULL`: TX FIFO had no room
 
-This module exports:
+### `pio_alarm_timer_result_kind_t` and `pio_alarm_timer_result_t`
 
-- `pio_alarm_timer.pio`
-- `pio_alarm_timer.c`
-- `pio_alarm_timer.h`
+Decoded form of one RX word returned by the PIO program.
 
-## API highlights
+- `REARM_ACK`: the rearm command completed
+- `LATE`: the alarm was already stale when evaluated
+- `FIRED`: the alarm reached its requested tick
 
-- `pio_alarm_timer_init(...)`
-	- initializes one SM for alarm-timer operation and PPS wait pin.
-- `pio_alarm_timer_queue_rearm(...)`
-	- queues command `0` and clears host-side monotonic state.
-- `pio_alarm_timer_queue_alarm(...)`
-	- enqueues `T>0` alarm ticks.
-	- guards against non-monotonic values (`next < last`).
-	- on regression, issues rearm command and returns
-		`PIO_ALARM_TIMER_ENQUEUE_ERR_NON_MONOTONIC`.
-- `pio_alarm_timer_try_read_result(...)`
-	- returns one RX FIFO result word when available.
-- `pio_alarm_timer_decode_result(...)`
-	- decodes raw result into typed kind (`REARM_ACK`, `LATE`, `FIRED`).
-- `pio_alarm_timer_try_read_decoded_result(...)`
-	- convenience helper combining read + decode.
-- `pio_alarm_timer_set_rx_irq_callback(...)`
-	- enables per-SM RX-not-empty IRQ callback dispatch.
-- `pio_alarm_timer_clear_rx_irq_callback(...)`
-	- disables per-SM RX IRQ callback dispatch.
+### `pio_alarm_timer_t`
+
+Runtime driver state. The caller owns this object and must keep it alive for as long as any IRQ callback remains registered.
+
+## API reference
+
+### `pio_alarm_timer_init(...)`
+
+Initializes one state machine using a previously loaded `pio_alarm_timer_program` offset.
+
+Important parameters:
+
+- `offset`: instruction-memory location of the loaded PIO program
+- `pps_pin`: pin sampled by `WAIT PIN` during rearm
+- `sm_clk_hz`: state-machine clock used for the timer counter
+
+### `pio_alarm_timer_queue_rearm(...)`
+
+Queues the special rearm command and clears the host-side monotonic history. Returns `false` if the timer is not initialized or the TX FIFO is full.
+
+### `pio_alarm_timer_queue_alarm(...)`
+
+Queues one future alarm tick.
+
+The driver rejects descending tick values because the PIO program assumes a forward-moving schedule. If the caller tries to enqueue a lower value than the last accepted alarm, the driver first queues a rearm and then returns `PIO_ALARM_TIMER_ENQUEUE_ERR_NON_MONOTONIC`.
+
+### `pio_alarm_timer_try_read_result(...)`
+
+Reads one raw 32-bit result word if one is available.
+
+### `pio_alarm_timer_decode_result(...)`
+
+Converts a raw result word into `pio_alarm_timer_result_t`.
+
+### `pio_alarm_timer_try_read_decoded_result(...)`
+
+Convenience helper that combines read and decode in one call.
+
+### `pio_alarm_timer_set_rx_irq_callback(...)`
+
+Registers a callback on the PIO IRQ0 line so results can be consumed in interrupt context. The callback must stay short and non-blocking.
+
+### `pio_alarm_timer_clear_rx_irq_callback(...)`
+
+Disables the IRQ dispatch path for that timer instance.
+
+## Behavior
+
+- the timer runs inside one state machine
+- rearm waits for a PPS edge before the timer starts accepting new alarms
+- the host API tracks the last queued alarm and rejects descending values
+- on a descending request, the driver forces a rearm so the host and PIO state stay aligned
+
+## Practical notes
+
+The PIO program is intentionally small. It does not try to solve every stale-command case in hardware, so the host-side monotonic check is part of the design, not a temporary workaround.
+
+## Integration notes
+
+- The timer does not reset between alarm commands; only a rearm command restarts the PPS-gated path.
+- The driver’s monotonic guard is not optional. If a caller wants to start over with an earlier schedule, it should explicitly rearm first.
+- The IRQ dispatch code installs one shared handler per PIO block and routes callbacks by state-machine index.
+
+Use the validation build if you want to verify PPS rearm behavior and late-alarm handling on hardware.

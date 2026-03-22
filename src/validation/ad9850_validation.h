@@ -4,6 +4,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/**
+ * @brief Configuration for the interactive AD9850 validation loop.
+ */
 typedef struct {
     uint spi_index;
     uint32_t spi_baud_hz;
@@ -19,6 +22,9 @@ typedef struct {
     bool power_down;
 } ad9850_validation_config_t;
 
+/**
+ * @brief Runs the AD9850 validation loop until the user exits.
+ */
 void ad9850_validation_run(const ad9850_validation_config_t *config);
 
 #endif

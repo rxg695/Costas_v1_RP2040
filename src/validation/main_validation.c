@@ -60,7 +60,7 @@ static uint32_t prompt_u32(const char *label, uint32_t default_value) {
     char *end_ptr = NULL;
     unsigned long value = strtoul(line, &end_ptr, 10);
     if (end_ptr == line || *end_ptr != '\0') {
-        printf("Invalid input, using default %lu\n", (unsigned long) default_value);
+        printf("Input was not a valid integer. Keeping %lu.\n", (unsigned long) default_value);
         return default_value;
     }
 
@@ -152,26 +152,27 @@ int main()
     };
 
     while (true) {
-        printf("\n=== Validation Menu ===\n");
-        printf("1) Input capture validation\n");
-        printf("2) Output compare validation\n");
-        printf("3) PIO alarm timer validation\n");
-        printf("4) AD9850 validation\n");
-        printf("5) Scheduler validation\n");
-        printf("q) Quit menu loop\n");
-        printf("Select: ");
+        printf("\n=== RP2040 Validation Console ===\n");
+        printf("1) Input capture       Measure delay from a start edge to a stop edge\n");
+        printf("2) Output compare      Generate delayed pulses from a trigger\n");
+        printf("3) Alarm timer         Queue PPS-gated alarm events\n");
+        printf("4) AD9850              Exercise SPI writes and latch/reset control\n");
+        printf("5) Scheduler           Run the output/alarm/DDS orchestration path\n");
+        printf("q) Quit                Leave the console in an idle loop\n");
+        printf("Choose a module: ");
 
         char line[16];
         read_line(line, sizeof(line));
 
         if (line[0] == '1') {
+            printf("\nInput capture setup. Press Enter to keep the value shown in brackets.\n");
             input_cfg.pio_index = prompt_u32("PIO index (0 or 1)", input_cfg.pio_index);
             input_cfg.sm = prompt_u32("SM index", input_cfg.sm);
-            input_cfg.start_pin = prompt_u32("Start pin", input_cfg.start_pin);
-            input_cfg.stop_pin = prompt_u32("Stop pin", input_cfg.stop_pin);
-            input_cfg.sm_clk_hz = prompt_u32("SM clock (Hz)", input_cfg.sm_clk_hz);
-            input_cfg.timeout_ns = prompt_u32("Timeout (ns)", input_cfg.timeout_ns);
-            input_cfg.sample_count = prompt_u32("Samples per report", input_cfg.sample_count);
+            input_cfg.start_pin = prompt_u32("Start pin (rising edge)", input_cfg.start_pin);
+            input_cfg.stop_pin = prompt_u32("Stop pin (rising edge)", input_cfg.stop_pin);
+            input_cfg.sm_clk_hz = prompt_u32("State-machine clock (Hz)", input_cfg.sm_clk_hz);
+            input_cfg.timeout_ns = prompt_u32("Timeout window (ns)", input_cfg.timeout_ns);
+            input_cfg.sample_count = prompt_u32("Valid samples per report", input_cfg.sample_count);
 
             pio_timer_input_capture_validation_config_t run_cfg = {
                 .start_pin = input_cfg.start_pin,
@@ -184,55 +185,59 @@ int main()
             };
             pio_timer_input_capture_validation_run(&run_cfg);
         } else if (line[0] == '2') {
+            printf("\nOutput compare setup. Press Enter to keep the value shown in brackets.\n");
             output_cfg.pio_index = prompt_u32("PIO index (0 or 1)", output_cfg.pio_index);
             output_cfg.sm = prompt_u32("SM index", output_cfg.sm);
             output_cfg.trigger_pin = prompt_u32("Trigger pin", output_cfg.trigger_pin);
-            output_cfg.output_pin = prompt_u32("Output pin", output_cfg.output_pin);
+            output_cfg.output_pin = prompt_u32("Pulse output pin", output_cfg.output_pin);
             output_cfg.continuous_mode =
-                prompt_u32("Continuous mode (0=one-shot, 1=continuous)",
+                prompt_u32("Playback mode (0=one-shot, 1=continuous)",
                            output_cfg.continuous_mode ? 1u : 0u) != 0u;
-            output_cfg.sm_clk_hz = prompt_u32("SM clock (Hz)", output_cfg.sm_clk_hz);
+            output_cfg.sm_clk_hz = prompt_u32("State-machine clock (Hz)", output_cfg.sm_clk_hz);
             output_cfg.compare_ns = prompt_u32("Compare delay (ns)", output_cfg.compare_ns);
             output_cfg.pulse_ns = prompt_u32("Pulse width (ns)", output_cfg.pulse_ns);
 
             pio_timer_output_compare_validation_run(&output_cfg);
         } else if (line[0] == '3') {
+            printf("\nAlarm timer setup. Press Enter to keep the value shown in brackets.\n");
             alarm_timer_cfg.pio_index = prompt_u32("PIO index (0 or 1)", alarm_timer_cfg.pio_index);
             alarm_timer_cfg.sm = prompt_u32("SM index", alarm_timer_cfg.sm);
-            alarm_timer_cfg.pps_pin = prompt_u32("PPS pin", alarm_timer_cfg.pps_pin);
-            alarm_timer_cfg.sm_clk_hz = prompt_u32("SM clock (Hz)", alarm_timer_cfg.sm_clk_hz);
+            alarm_timer_cfg.pps_pin = prompt_u32("PPS input pin", alarm_timer_cfg.pps_pin);
+            alarm_timer_cfg.sm_clk_hz = prompt_u32("State-machine clock (Hz)", alarm_timer_cfg.sm_clk_hz);
             alarm_timer_cfg.first_alarm_tick = prompt_u32("First alarm tick", alarm_timer_cfg.first_alarm_tick);
-            alarm_timer_cfg.alarm_step_ticks = prompt_u32("Alarm step ticks", alarm_timer_cfg.alarm_step_ticks);
-            alarm_timer_cfg.burst_count = prompt_u32("Burst count", alarm_timer_cfg.burst_count);
+            alarm_timer_cfg.alarm_step_ticks = prompt_u32("Tick step between alarms", alarm_timer_cfg.alarm_step_ticks);
+            alarm_timer_cfg.burst_count = prompt_u32("Burst length", alarm_timer_cfg.burst_count);
 
             pio_alarm_timer_validation_run(&alarm_timer_cfg);
         } else if (line[0] == '4') {
+            printf("\nAD9850 setup. Press Enter to keep the value shown in brackets.\n");
             ad9850_cfg.spi_index = prompt_u32("SPI index (0 or 1)", ad9850_cfg.spi_index);
-            ad9850_cfg.spi_baud_hz = prompt_u32("SPI baud (Hz)", ad9850_cfg.spi_baud_hz);
+            ad9850_cfg.spi_baud_hz = prompt_u32("SPI baud rate (Hz)", ad9850_cfg.spi_baud_hz);
             ad9850_cfg.sck_pin = prompt_u32("SCK pin", ad9850_cfg.sck_pin);
             ad9850_cfg.mosi_pin = prompt_u32("MOSI pin", ad9850_cfg.mosi_pin);
             ad9850_cfg.use_fqud_pin =
-                prompt_u32("Use FQ_UD pin (0/1)", ad9850_cfg.use_fqud_pin ? 1u : 0u) != 0u;
+                prompt_u32("Drive FQ_UD pin (0/1)", ad9850_cfg.use_fqud_pin ? 1u : 0u) != 0u;
             ad9850_cfg.fqud_pin = prompt_u32("FQ_UD pin", ad9850_cfg.fqud_pin);
             ad9850_cfg.use_reset_pin =
-                prompt_u32("Use reset pin (0/1)", ad9850_cfg.use_reset_pin ? 1u : 0u) != 0u;
+                prompt_u32("Drive RESET pin (0/1)", ad9850_cfg.use_reset_pin ? 1u : 0u) != 0u;
             ad9850_cfg.reset_pin = prompt_u32("Reset pin", ad9850_cfg.reset_pin);
-            ad9850_cfg.dds_sysclk_hz = prompt_u32("DDS sysclk (Hz)", ad9850_cfg.dds_sysclk_hz);
+            ad9850_cfg.dds_sysclk_hz = prompt_u32("DDS system clock (Hz)", ad9850_cfg.dds_sysclk_hz);
             ad9850_cfg.frequency_hz = prompt_u32("Initial frequency (Hz)", ad9850_cfg.frequency_hz);
             ad9850_cfg.phase = prompt_u32("Initial phase (0..31)", ad9850_cfg.phase);
             ad9850_cfg.power_down =
-                prompt_u32("Initial power-down (0/1)", ad9850_cfg.power_down ? 1u : 0u) != 0u;
+                prompt_u32("Start in power-down (0/1)", ad9850_cfg.power_down ? 1u : 0u) != 0u;
 
             ad9850_validation_run(&ad9850_cfg);
         } else if (line[0] == '5') {
+            printf("\nScheduler setup. Module-specific prompts will follow.\n");
             scheduler_validation_run(&scheduler_cfg);
         } else if (line[0] == 'q' || line[0] == 'Q') {
-            printf("Exiting validation menu loop\n");
+            printf("Validation console is now idle. Reset the board to start again.\n");
             while (true) {
                 tight_loop_contents();
             }
         } else {
-            printf("Unknown selection\n");
+            printf("Unknown selection. Choose 1-5 or q.\n");
         }
     }
 }

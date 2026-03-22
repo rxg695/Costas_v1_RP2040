@@ -7,8 +7,12 @@
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 
+/** Raw RX value used by the PIO program to report a timeout. */
 #define PIO_TIMER_INPUT_CAPTURE_TIMEOUT_SENTINEL 0xffffffffu
 
+/**
+ * @brief Runtime state for one input-capture instance.
+ */
 typedef struct {
     PIO pio;
     uint sm;
@@ -20,8 +24,12 @@ typedef struct {
     uint32_t timeout_loops;
 } pio_timer_input_capture_t;
 
-// Initializes the PIO timer input capture block.
-// Measures start_pin rising edge -> stop_pin rising edge.
+/**
+ * @brief Initializes one input-capture state machine.
+ *
+ * Measures the interval from a rising edge on @p start_pin to a rising edge on
+ * @p stop_pin, with a timeout defined by @p timeout_ns.
+ */
 void pio_timer_input_capture_init(pio_timer_input_capture_t *capture,
                                   PIO pio,
                                   uint sm,
@@ -30,15 +38,18 @@ void pio_timer_input_capture_init(pio_timer_input_capture_t *capture,
                                   uint32_t sm_clk_hz,
                                   uint32_t timeout_ns);
 
-// Polls one capture result from RX FIFO.
-// Returns true when a result is available, false otherwise.
-// - timed_out=true  -> no stop edge before timeout
-// - timed_out=false -> elapsed_ticks contains measured delay in timer ticks
+/**
+ * @brief Polls one result from the RX FIFO.
+ *
+ * @return true when a result was returned, false when no result is available.
+ */
 bool pio_timer_input_capture_poll(pio_timer_input_capture_t *capture,
                                   uint32_t *elapsed_ticks,
                                   bool *timed_out);
 
-// Converts measured ticks to nanoseconds for this capture configuration.
+/**
+ * @brief Converts measured ticks to nanoseconds.
+ */
 uint64_t pio_timer_input_capture_ticks_to_ns(const pio_timer_input_capture_t *capture,
                                              uint32_t ticks);
 

@@ -132,7 +132,7 @@ static uint32_t prompt_u32(const char *label,
     char *end_ptr = NULL;
     unsigned long value = strtoul(line, &end_ptr, 10);
     if (end_ptr == line || *end_ptr != '\0') {
-        printf("Invalid input, using default %lu\n", (unsigned long) default_value);
+        printf("Input was not a valid integer. Keeping %lu.\n", (unsigned long) default_value);
         return default_value;
     }
 
@@ -153,7 +153,7 @@ static int32_t prompt_i32(const char *label,
     char *end_ptr = NULL;
     long value = strtol(line, &end_ptr, 10);
     if (end_ptr == line || *end_ptr != '\0') {
-        printf("Invalid input, using default %ld\n", (long) default_value);
+        printf("Input was not a valid integer. Keeping %ld.\n", (long) default_value);
         return default_value;
     }
 
@@ -170,13 +170,13 @@ static void prompt_common_config(scheduler_validation_config_t *cfg)
         prompt_u32("Output compare PIO index (0 or 1)", cfg->output_compare_pio_index);
     cfg->alarm_timer_pio_index =
         prompt_u32("Alarm timer PIO index (0 or 1)", cfg->alarm_timer_pio_index);
-    cfg->output_compare_sm = prompt_u32("Output compare SM", cfg->output_compare_sm);
-    cfg->alarm_timer_sm = prompt_u32("Alarm timer SM", cfg->alarm_timer_sm);
+    cfg->output_compare_sm = prompt_u32("Output compare SM index", cfg->output_compare_sm);
+    cfg->alarm_timer_sm = prompt_u32("Alarm timer SM index", cfg->alarm_timer_sm);
     cfg->pps_pin = prompt_u32("PPS pin", cfg->pps_pin);
     cfg->trigger_pin = prompt_u32("Trigger pin", cfg->trigger_pin);
-    cfg->output_pin = prompt_u32("Output pin", cfg->output_pin);
-    cfg->sm_clk_hz = prompt_u32("SM clock (Hz)", cfg->sm_clk_hz);
-    cfg->output_pulse_us = prompt_u32("Output pulse (us)", cfg->output_pulse_us);
+    cfg->output_pin = prompt_u32("Output pulse pin", cfg->output_pin);
+    cfg->sm_clk_hz = prompt_u32("State-machine clock (Hz)", cfg->sm_clk_hz);
+    cfg->output_pulse_us = prompt_u32("Output pulse width (us)", cfg->output_pulse_us);
 
     cfg->ad9850_spi_index = prompt_u32("AD9850 SPI index (0 or 1)", cfg->ad9850_spi_index);
     cfg->ad9850_spi_baud_hz = prompt_u32("AD9850 SPI baud (Hz)", cfg->ad9850_spi_baud_hz);
@@ -186,10 +186,10 @@ static void prompt_common_config(scheduler_validation_config_t *cfg)
     cfg->ad9850_reset_pin = prompt_u32("AD9850 reset pin", cfg->ad9850_reset_pin);
     cfg->ad9850_sysclk_hz = prompt_u32("AD9850 sysclk (Hz)", cfg->ad9850_sysclk_hz);
 
-    cfg->dt0_us = prompt_u32("dt0 (us)", cfg->dt0_us);
-    cfg->symbol_count = prompt_u32("symbol_count", cfg->symbol_count);
-    cfg->dts_us = prompt_u32("dts (us, all symbols)", cfg->dts_us);
-    cfg->load_offset_us = prompt_i32("load_offset (us)", cfg->load_offset_us);
+    cfg->dt0_us = prompt_u32("Initial offset dt0 (us)", cfg->dt0_us);
+    cfg->symbol_count = prompt_u32("Symbol count", cfg->symbol_count);
+    cfg->dts_us = prompt_u32("Per-symbol spacing dts (us)", cfg->dts_us);
+    cfg->load_offset_us = prompt_i32("Alarm load offset (us)", cfg->load_offset_us);
 }
 
 static void fill_prepare_request(const scheduler_validation_config_t *cfg,
@@ -256,32 +256,37 @@ static void print_scheduler_report(const scheduler_t *scheduler,
         return;
     }
 
-    printf("[%s] state=%s error=%s prepared=%u symbol_count=%lu next_alarm=%lu next_write=%lu alarms=%lu rearm_ack=%lu out_feed=%lu alarm_feed=%lu\n",
-           label,
-           state_name(scheduler_get_state(scheduler)),
-           error_name(scheduler_get_last_error(scheduler)),
-           scheduler->prepared ? 1u : 0u,
-           (unsigned long) scheduler->symbol_count,
-           (unsigned long) scheduler->next_alarm_index,
-           (unsigned long) scheduler->next_write_symbol,
-           (unsigned long) scheduler->alarm_fired_count,
-           (unsigned long) scheduler->rearm_ack_count,
-           (unsigned long) scheduler->output_feed_count,
-           (unsigned long) scheduler->alarm_feed_count);
+        printf("[%s]\n", label);
+        printf("  state=%s   error=%s   prepared=%s\n",
+            state_name(scheduler_get_state(scheduler)),
+            error_name(scheduler_get_last_error(scheduler)),
+            scheduler->prepared ? "yes" : "no");
+        printf("  symbol_count=%lu   next_alarm=%lu   next_write=%lu\n",
+            (unsigned long) scheduler->symbol_count,
+            (unsigned long) scheduler->next_alarm_index,
+            (unsigned long) scheduler->next_write_symbol);
+        printf("  alarms=%lu   rearm_ack=%lu   out_feed=%lu   alarm_feed=%lu\n",
+            (unsigned long) scheduler->alarm_fired_count,
+            (unsigned long) scheduler->rearm_ack_count,
+            (unsigned long) scheduler->output_feed_count,
+            (unsigned long) scheduler->alarm_feed_count);
 }
 
 static void print_report_legend(void)
 {
-    printf("fields: state=state_machine error=last_error prepared=prepare_done symbol_count=burst_symbols next_alarm=next_expected_alarm_idx next_write=next_ad9850_write_idx alarms=alarm_fired_count rearm_ack=rearm_ack_count out_feed=output_words_fed alarm_feed=alarm_words_fed\n");
+    printf("fields: state=current state, error=last error, prepared=prepare finished, symbol_count=prepared symbols\n");
+    printf("        next_alarm=next alarm index, next_write=next AD9850 write index, alarms=fired alarm count\n");
+    printf("        rearm_ack=rearm acknowledgements, out_feed=output FIFO feeds, alarm_feed=alarm FIFO feeds\n");
 }
 
 static void run_sequence_building(scheduler_validation_config_t *cfg)
 {
     prompt_common_config(cfg);
+    printf("Building sequences and preparing the scheduler...\n");
 
     scheduler_t scheduler;
     if (!init_scheduler(cfg, &scheduler)) {
-        printf("init failed\n");
+        printf("Scheduler initialization failed.\n");
         return;
     }
 
@@ -295,13 +300,13 @@ static void run_sequence_building(scheduler_validation_config_t *cfg)
     print_scheduler_report(&scheduler, "sequence");
 
     if (ok) {
-        printf("output_compare_sequence: ");
+        printf("Output compare sequence (ticks): ");
         for (uint32_t i = 0u; i < request.symbol_count; ++i) {
             printf("%lu ", (unsigned long) scheduler.output_compare_sequence[i]);
         }
         printf("\n");
 
-        printf("alarm_timer_sequence: ");
+        printf("Alarm timer sequence (ticks): ");
         for (uint32_t i = 0u; i < (request.symbol_count + 1u); ++i) {
             printf("%lu ", (unsigned long) scheduler.alarm_timer_sequence[i]);
         }
@@ -312,10 +317,11 @@ static void run_sequence_building(scheduler_validation_config_t *cfg)
 static void run_initialization(scheduler_validation_config_t *cfg)
 {
     prompt_common_config(cfg);
+    printf("Initializing the scheduler only...\n");
 
     scheduler_t scheduler;
     bool ok = init_scheduler(cfg, &scheduler);
-    printf("init=%s\n", ok ? "ok" : "failed");
+    printf("Initialization: %s\n", ok ? "ok" : "failed");
     if (ok) {
         print_scheduler_report(&scheduler, "init");
     }
@@ -324,10 +330,11 @@ static void run_initialization(scheduler_validation_config_t *cfg)
 static void run_prepare_preload(scheduler_validation_config_t *cfg)
 {
     prompt_common_config(cfg);
+    printf("Initializing and preloading the scheduler...\n");
 
     scheduler_t scheduler;
     if (!init_scheduler(cfg, &scheduler)) {
-        printf("init failed\n");
+        printf("Scheduler initialization failed.\n");
         return;
     }
 
@@ -337,13 +344,13 @@ static void run_prepare_preload(scheduler_validation_config_t *cfg)
     fill_prepare_request(cfg, &request, dts_ticks, freq_hz);
 
     bool ok = scheduler_prepare(&scheduler, &request);
-    printf("prepare=%s\n", ok ? "ok" : "failed");
+    printf("Prepare: %s\n", ok ? "ok" : "failed");
     print_scheduler_report(&scheduler, "prepare");
 
     if (ok) {
         scheduler.state = SCHEDULER_STATE_END_OK;
         bool reset_ok = scheduler_reset(&scheduler);
-        printf("cleanup_reset=%s\n", reset_ok ? "ok" : "failed");
+        printf("Cleanup reset: %s\n", reset_ok ? "ok" : "failed");
         print_scheduler_report(&scheduler, "after_cleanup");
     }
 }
@@ -351,10 +358,11 @@ static void run_prepare_preload(scheduler_validation_config_t *cfg)
 static void run_timer_orchestration(scheduler_validation_config_t *cfg)
 {
     prompt_common_config(cfg);
+    printf("Preparing the timer-orchestration validation path...\n");
 
     scheduler_t scheduler;
     if (!init_scheduler(cfg, &scheduler)) {
-        printf("init failed\n");
+        printf("Scheduler initialization failed.\n");
         return;
     }
 
@@ -364,14 +372,14 @@ static void run_timer_orchestration(scheduler_validation_config_t *cfg)
     fill_prepare_request(cfg, &request, dts_ticks, freq_hz);
 
     if (!scheduler_prepare(&scheduler, &request)) {
-        printf("prepare failed\n");
+        printf("Scheduler prepare step failed.\n");
         print_scheduler_report(&scheduler, "prepare_fail");
         return;
     }
 
     print_report_legend();
 
-    printf("timer orchestration ready. command: a=arm q=return\n");
+    printf("Timer orchestration is ready. Commands: a=arm, q=return\n");
     while (true) {
         int ch = getchar_timeout_us(0);
         if (ch == PICO_ERROR_TIMEOUT) {
@@ -381,7 +389,7 @@ static void run_timer_orchestration(scheduler_validation_config_t *cfg)
 
         if (ch == 'a' || ch == 'A') {
             bool arm_ok = scheduler_arm(&scheduler);
-            printf("arm=%s\n", arm_ok ? "ok" : "failed");
+            printf("Arm: %s\n", arm_ok ? "ok" : "failed");
             if (!arm_ok) {
                 print_scheduler_report(&scheduler, "arm_fail");
                 continue;
@@ -394,14 +402,14 @@ static void run_timer_orchestration(scheduler_validation_config_t *cfg)
             print_scheduler_report(&scheduler, "end");
             if (scheduler_get_state(&scheduler) == SCHEDULER_STATE_END_OK) {
                 bool reset_ok = scheduler_reset(&scheduler);
-                printf("cleanup_reset=%s\n", reset_ok ? "ok" : "failed");
+                printf("Cleanup reset: %s\n", reset_ok ? "ok" : "failed");
                 print_scheduler_report(&scheduler, "cleanup");
             }
             return;
         }
 
         if (ch == 'q' || ch == 'Q') {
-            printf("timer orchestration aborted\n");
+            printf("Timer orchestration cancelled.\n");
             return;
         }
     }
@@ -415,7 +423,7 @@ static void run_full_integration(scheduler_validation_config_t *cfg)
     bool initialized = false;
 
     print_report_legend();
-    printf("full integration commands: i=init p=prepare a=arm s=status q=return\n");
+    printf("Full integration commands: i=init, p=prepare, a=arm, s=status, q=return\n");
     while (true) {
         int ch = getchar_timeout_us(0);
         if (ch == PICO_ERROR_TIMEOUT) {
@@ -425,13 +433,13 @@ static void run_full_integration(scheduler_validation_config_t *cfg)
 
         if (ch == 'i' || ch == 'I') {
             initialized = init_scheduler(cfg, &scheduler);
-            printf("init=%s\n", initialized ? "ok" : "failed");
+            printf("Initialization: %s\n", initialized ? "ok" : "failed");
             if (initialized) {
                 print_scheduler_report(&scheduler, "init");
             }
         } else if (ch == 'p' || ch == 'P') {
             if (!initialized) {
-                printf("init first\n");
+                printf("Initialize the scheduler first.\n");
                 continue;
             }
 
@@ -441,16 +449,16 @@ static void run_full_integration(scheduler_validation_config_t *cfg)
             fill_prepare_request(cfg, &request, dts_ticks, freq_hz);
 
             bool ok = scheduler_prepare(&scheduler, &request);
-            printf("prepare=%s\n", ok ? "ok" : "failed");
+            printf("Prepare: %s\n", ok ? "ok" : "failed");
             print_scheduler_report(&scheduler, "prepare");
         } else if (ch == 'a' || ch == 'A') {
             if (!initialized) {
-                printf("init first\n");
+                printf("Initialize the scheduler first.\n");
                 continue;
             }
 
             bool ok = scheduler_arm(&scheduler);
-            printf("arm=%s\n", ok ? "ok" : "failed");
+            printf("Arm: %s\n", ok ? "ok" : "failed");
             if (!ok) {
                 print_scheduler_report(&scheduler, "arm_fail");
                 continue;
@@ -470,7 +478,7 @@ static void run_full_integration(scheduler_validation_config_t *cfg)
             if (initialized) {
                 print_scheduler_report(&scheduler, "status");
             } else {
-                printf("status: not initialized\n");
+                printf("Scheduler has not been initialized yet.\n");
             }
         } else if (ch == 'q' || ch == 'Q') {
             printf("Leaving scheduler validation\n");
@@ -488,15 +496,15 @@ void scheduler_validation_run(const scheduler_validation_config_t *config)
 
     scheduler_validation_config_t cfg = *config;
 
-    printf("\nScheduler validation submenu\n");
+    printf("\n=== Scheduler Validation ===\n");
     while (true) {
-        printf("a) Sequence building\n");
-        printf("b) Initialization\n");
-        printf("c) Prepare/preload\n");
-        printf("d) Timer orchestration\n");
-        printf("e) Full integration\n");
+        printf("a) Build sequences      Prepare and print the generated timing arrays\n");
+        printf("b) Init only            Bring up the scheduler and print state\n");
+        printf("c) Prepare/preload      Run init + prepare + cleanup\n");
+        printf("d) Timer orchestration  Arm once and wait for the run to finish\n");
+        printf("e) Full integration     Step through init, prepare, arm, and status manually\n");
         printf("q) Return\n");
-        printf("Select: ");
+        printf("Choose a scheduler mode: ");
 
         char line[16];
         read_line(line, sizeof(line));
@@ -514,7 +522,7 @@ void scheduler_validation_run(const scheduler_validation_config_t *config)
         } else if (line[0] == 'q' || line[0] == 'Q') {
             break;
         } else {
-            printf("Unknown selection\n");
+            printf("Unknown selection. Choose a-e or q.\n");
         }
 
         printf("\n");

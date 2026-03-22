@@ -3,7 +3,6 @@
 #include "hardware/gpio.h"
 #include "hardware/spi.h"
 
-// AD9850 exposes 5-bit phase control field.
 static bool ad9850_valid_phase(uint8_t phase)
 {
     return phase <= 31u;
@@ -12,7 +11,6 @@ static bool ad9850_valid_phase(uint8_t phase)
 bool ad9850_driver_init(ad9850_driver_t *driver,
                         const ad9850_driver_config_t *config)
 {
-    // Validate mandatory pointers and timing inputs.
     if (driver == NULL || config == NULL || config->spi == NULL) {
         return false;
     }
@@ -20,22 +18,18 @@ bool ad9850_driver_init(ad9850_driver_t *driver,
         return false;
     }
 
-    // Initialize RP2040 hardware SPI in AD9850-compatible mode.
     (void) spi_init(config->spi, config->spi_baud_hz);
     spi_set_format(config->spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
 
-    // Route SPI functions to user-selected pins.
     gpio_set_function(config->sck_pin, GPIO_FUNC_SPI);
     gpio_set_function(config->mosi_pin, GPIO_FUNC_SPI);
 
-    // Optional latch control pin (kept low while idle).
     if (config->use_fqud_pin) {
         gpio_init(config->fqud_pin);
         gpio_set_dir(config->fqud_pin, GPIO_OUT);
         gpio_put(config->fqud_pin, 0);
     }
 
-    // Optional reset control pin (active-high reset, kept low while idle).
     if (config->use_reset_pin) {
         gpio_init(config->reset_pin);
         gpio_set_dir(config->reset_pin, GPIO_OUT);
@@ -85,13 +79,11 @@ bool ad9850_driver_make_frame(uint32_t ftw,
         return false;
     }
 
-    // AD9850 serial protocol is little-endian FTW byte order.
     frame_out->bytes[0] = (uint8_t) (ftw & 0xFFu);
     frame_out->bytes[1] = (uint8_t) ((ftw >> 8) & 0xFFu);
     frame_out->bytes[2] = (uint8_t) ((ftw >> 16) & 0xFFu);
     frame_out->bytes[3] = (uint8_t) ((ftw >> 24) & 0xFFu);
 
-    // Control byte: phase in bits [7:3], power-down at bit 2.
     uint8_t control = (uint8_t) ((phase & 0x1Fu) << 3);
     if (power_down) {
         control |= 0x04u;
@@ -112,7 +104,6 @@ bool ad9850_driver_frequency_hz_to_ftw(const ad9850_driver_t *driver,
         return false;
     }
 
-    // FTW = floor((f_out / f_sysclk) * 2^32)
     uint64_t numerator = ((uint64_t) frequency_hz) << 32;
     *ftw_out = (uint32_t) (numerator / (uint64_t) driver->dds_sysclk_hz);
     return true;
@@ -121,12 +112,10 @@ bool ad9850_driver_frequency_hz_to_ftw(const ad9850_driver_t *driver,
 bool ad9850_driver_write_frame_blocking(const ad9850_driver_t *driver,
                                         const ad9850_frame_t *frame)
 {
-    // Guard write path until explicit serial interface enable has completed.
     if (driver == NULL || !driver->initialized || !driver->serial_enabled || frame == NULL) {
         return false;
     }
 
-    // Blocking write ensures full 40-bit command transfer completion.
     int rc = spi_write_blocking(driver->spi, frame->bytes, 5);
     return rc == 5;
 }
@@ -137,7 +126,6 @@ bool ad9850_driver_pulse_fqud(const ad9850_driver_t *driver)
         return false;
     }
 
-    // Conservative pulse width for board-level timing tolerance.
     gpio_put(driver->fqud_pin, 1);
     sleep_us(1);
     gpio_put(driver->fqud_pin, 0);
@@ -150,14 +138,13 @@ bool ad9850_driver_serial_enable(ad9850_driver_t *driver)
         return false;
     }
 
-    // 1) Master Reset: pulse RST high.
     if (driver->use_reset_pin) {
         if (!ad9850_driver_reset(driver)) {
             return false;
         }
     }
 
-    // 2) Toggle W_CLK: temporarily hand SCK to SIO, pulse once, then restore SPI mode.
+    // The AD9850 serial-enable sequence needs a manual W_CLK pulse.
     gpio_set_function(driver->sck_pin, GPIO_FUNC_SIO);
     gpio_set_dir(driver->sck_pin, GPIO_OUT);
     gpio_put(driver->sck_pin, 0);
@@ -168,7 +155,6 @@ bool ad9850_driver_serial_enable(ad9850_driver_t *driver)
     sleep_us(1);
     gpio_set_function(driver->sck_pin, GPIO_FUNC_SPI);
 
-    // 3) Toggle FQ_UD: pulse high.
     if (driver->use_fqud_pin) {
         if (!ad9850_driver_pulse_fqud(driver)) {
             return false;
@@ -202,13 +188,11 @@ bool ad9850_driver_reset(ad9850_driver_t *driver)
         return false;
     }
 
-    // Active-high reset pulse, then return to low (deasserted).
     gpio_put(driver->reset_pin, 1);
     sleep_us(2);
     gpio_put(driver->reset_pin, 0);
     sleep_us(2);
 
-    // Reset invalidates serial-interface enable state.
     driver->serial_enabled = false;
     driver->tx_active = false;
     driver->tx_pending_pulse_fqud = false;

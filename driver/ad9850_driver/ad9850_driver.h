@@ -7,45 +7,56 @@
 #include "hardware/spi.h"
 #include "pico/stdlib.h"
 
-// AD9850 serial frame, transmitted LSB byte first.
-// bytes[0..3]: FTW least-significant to most-significant byte.
-// bytes[4]: control byte (phase and power-down bits).
+/**
+ * @brief AD9850 serial frame in transmit order.
+ *
+ * The AD9850 expects the four FTW bytes least-significant first, followed by
+ * the control byte.
+ */
 typedef struct {
     uint8_t bytes[5];
 } ad9850_frame_t;
 
-// Static configuration for one AD9850 hardware-SPI driver instance.
+/**
+ * @brief Static configuration for one AD9850 driver instance.
+ */
 typedef struct {
-    // RP2040 SPI peripheral instance (spi0 or spi1).
+    /** RP2040 SPI peripheral instance, typically @c spi0 or @c spi1. */
     spi_inst_t *spi;
-    // SPI baud rate used for 40-bit AD9850 frame writes.
+    /** SPI bit rate used for 40-bit frame transfers. */
     uint32_t spi_baud_hz;
 
-    // SPI pins used for AD9850 serial clock and data.
+    /** SPI clock pin used for normal transfers and manual W_CLK pulsing. */
     uint sck_pin;
+    /** SPI MOSI pin used to shift frame data into the DDS. */
     uint mosi_pin;
 
-    // Optional FQ_UD latch pin.
+    /** Enables use of the FQ_UD latch pin. */
     bool use_fqud_pin;
+    /** GPIO used for FQ_UD when enabled. */
     uint fqud_pin;
 
-    // Optional hardware reset pin.
+    /** Enables use of the hardware reset pin. */
     bool use_reset_pin;
+    /** GPIO used for RESET when enabled. */
     uint reset_pin;
 
-    // DDS reference/system clock in Hz (used for Hz->FTW conversion).
+    /** DDS system clock in hertz, used by frequency-to-FTW conversion. */
     uint32_t dds_sysclk_hz;
 } ad9850_driver_config_t;
 
-// Runtime state for one initialized driver instance.
+/**
+ * @brief Runtime state for one initialized AD9850 driver.
+ */
 typedef struct {
+    /** True after successful initialization. */
     bool initialized;
-    // Write/apply operations are locked until serial-enable sequence succeeds.
+    /** True after the serial-enable sequence has completed successfully. */
     bool serial_enabled;
     spi_inst_t *spi;
     uint32_t dds_sysclk_hz;
 
-    // SCK pin is reused to generate a manual W_CLK pulse during serial-enable.
+    /** SCK pin reused for the manual W_CLK pulse during serial-enable. */
     uint sck_pin;
 
     bool use_fqud_pin;
@@ -54,7 +65,7 @@ typedef struct {
     bool use_reset_pin;
     uint reset_pin;
 
-    // Non-blocking runtime transfer state.
+    /** Non-blocking transfer state. */
     bool tx_active;
     bool tx_pending_pulse_fqud;
     bool tx_last_success;
@@ -63,69 +74,105 @@ typedef struct {
     ad9850_frame_t tx_frame_shadow;
 } ad9850_driver_t;
 
-// Initializes hardware SPI and optional control pins.
-// Returns false on invalid parameters.
+/**
+ * @brief Initializes SPI and optional control pins.
+ *
+ * The write path remains locked until @ref ad9850_driver_serial_enable is run.
+ *
+ * @return true on success, false on invalid configuration.
+ */
 bool ad9850_driver_init(ad9850_driver_t *driver,
                         const ad9850_driver_config_t *config);
 
-// Deinitializes SPI peripheral state for this driver instance.
+/**
+ * @brief Deinitializes the SPI peripheral used by this driver instance.
+ */
 void ad9850_driver_deinit(ad9850_driver_t *driver);
 
-// Builds one AD9850 frame from FTW + control fields.
-// phase must be in [0..31].
+/**
+ * @brief Builds a frame from FTW and control fields.
+ *
+ * @param ftw 32-bit frequency tuning word.
+ * @param phase 5-bit phase value in the range [0, 31].
+ * @param power_down When true, sets the AD9850 power-down bit.
+ * @param frame_out Output frame buffer.
+ * @return true on success, false if arguments are invalid.
+ */
 bool ad9850_driver_make_frame(uint32_t ftw,
                               uint8_t phase,
                               bool power_down,
                               ad9850_frame_t *frame_out);
 
-// Converts frequency in Hz to FTW using configured dds_sysclk_hz.
-// FTW = floor((frequency_hz * 2^32) / dds_sysclk_hz)
+/**
+ * @brief Converts a frequency in hertz to an FTW.
+ *
+ * Uses the configured DDS system clock and integer floor division.
+ */
 bool ad9850_driver_frequency_hz_to_ftw(const ad9850_driver_t *driver,
                                        uint32_t frequency_hz,
                                        uint32_t *ftw_out);
 
-// Writes one 40-bit frame over hardware SPI (blocking).
-// Guarded: returns false until ad9850_driver_serial_enable(...) has run.
+/**
+ * @brief Writes one frame over SPI.
+ *
+ * Fails until the serial-enable sequence has completed.
+ */
 bool ad9850_driver_write_frame_blocking(const ad9850_driver_t *driver,
                                         const ad9850_frame_t *frame);
 
-// Pulses FQ_UD if use_fqud_pin is enabled.
+/**
+ * @brief Pulses FQ_UD when that pin is enabled.
+ */
 bool ad9850_driver_pulse_fqud(const ad9850_driver_t *driver);
 
-// Performs AD9850 serial interface enable sequence:
-// 1) pulse RST high (if configured)
-// 2) pulse W_CLK high (on configured SCK pin)
-// 3) pulse FQ_UD high (if configured)
-// On success, driver write path is unlocked.
+/**
+ * @brief Runs the AD9850 serial-enable sequence.
+ *
+ * This performs RESET, a manual W_CLK pulse, and an FQ_UD pulse, then unlocks
+ * the write path.
+ */
 bool ad9850_driver_serial_enable(ad9850_driver_t *driver);
 
-// Writes frame and optionally pulses FQ_UD.
-// Guarded through ad9850_driver_write_frame_blocking(...).
+/**
+ * @brief Writes a frame and optionally pulses FQ_UD.
+ */
 bool ad9850_driver_apply_frame_blocking(const ad9850_driver_t *driver,
                                         const ad9850_frame_t *frame,
                                         bool pulse_fqud);
 
-// Starts non-blocking frame apply operation for runtime ISR-driven orchestration.
-// Returns false if driver is not ready, arguments are invalid, or a previous
-// transfer is still active.
+/**
+ * @brief Starts a non-blocking write or write-and-latch operation.
+ *
+ * The caller must continue the transfer with
+ * @ref ad9850_driver_service_nonblocking.
+ */
 bool ad9850_driver_start_apply_nonblocking(ad9850_driver_t *driver,
                                            const ad9850_frame_t *frame,
                                            bool pulse_fqud);
 
-// Services a pending non-blocking transfer state machine.
-// Intended for IRQ-driven call sites.
+/**
+ * @brief Advances the active non-blocking transfer.
+ *
+ * Safe to call from an IRQ-driven code path.
+ */
 void ad9850_driver_service_nonblocking(ad9850_driver_t *driver);
 
-// Reports whether a non-blocking transfer is currently in progress.
+/**
+ * @brief Reports whether a non-blocking transfer is active.
+ */
 bool ad9850_driver_is_nonblocking_busy(const ad9850_driver_t *driver);
 
-// Returns completion status of most recent non-blocking transfer.
-// Returns false when no completion has occurred since the last call.
+/**
+ * @brief Retrieves the completion result of the most recent non-blocking transfer.
+ *
+ * @return true when a new completion result was returned, false otherwise.
+ */
 bool ad9850_driver_take_nonblocking_result(ad9850_driver_t *driver,
                                            bool *success_out);
 
-// Pulses optional reset pin if configured.
-// Reset clears serial-enabled state; serial-enable must be re-run before writes.
+/**
+ * @brief Pulses RESET when available and clears the serial-enabled state.
+ */
 bool ad9850_driver_reset(ad9850_driver_t *driver);
 
 #endif

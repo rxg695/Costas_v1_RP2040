@@ -1,151 +1,96 @@
-# Costas Array Generator for GPS PPS-Disciplined Ionospheric Sounding
+# Costas Array Timing Firmware
 
-This project implements a microcontroller-centered transmission timing engine for HF ionospheric sounding.
+Firmware for an RP2040-based timing engine intended for PPS-disciplined Costas-array transmission experiments.
 
-The device is intended to:
+The long-term goal is to start a transmission from GPS PPS, step the AD9850 through a symbol plan, and measure when RF actually appears at the rig output.
 
-- lock transmission timing to GPS PPS,
-- generate and transmit Costas-array symbols through an HF rig,
-- measure actual RF-on timing at the rig output,
-- later append timestamp telemetry (FSK) tied to the measured RF event.
+## What is in the repository
 
-## Mission Context
+- PIO timing drivers for output compare, input capture, and alarm scheduling
+- An AD9850 driver built on the RP2040 SPI peripheral
+- A scheduler prototype that coordinates the alarm timer, output compare, and DDS writes
+- A validation firmware build with a USB serial menu for hardware bring-up
 
-The MCU orchestrates multiple subsystems:
+## Current status
 
-- HF rig control (PTT, frequency, mode selection such as USB-D)
-- AD9850 programming (frequency/phase word loading + `FQ_UD` strobes)
-- PPS-referenced transmit timeline generation (output compare scheduling)
-- RF-on event timestamping (input capture from comparator/discrete detector)
+Working today:
 
-Future prototypes may add ADC-based RF envelope characterization to reduce timing walk vs RF power level.
+- output compare driver with programmable delay and pulse width
+- input capture driver with timeout handling
+- alarm timer driver with host-side monotonic checks
+- AD9850 write path, serial-enable sequence, and non-blocking transfer support
+- scheduler validation for sequence building and timer orchestration
 
-## End-to-End Timing Sequence
+Still to be integrated:
 
-Nominal high-level sequence per transmission:
+- rig/PTT control
+- full transmit state machine
+- RF-on timestamp capture in the production path
+- telemetry after the Costas burst
 
-1. Wait for GPS PPS edge.
-2. Apply PPS-to-array delay.
-3. Assert PTT.
-4. Wait amplifier/rig settle interval.
-5. Emit Costas array symbol updates through AD9850 (`FQ_UD` scheduling + preloaded words).
-6. Detect RF-on with comparator path and timestamp relative to PPS.
-7. Continue/finish symbol schedule.
-8. Encode timestamp telemetry as FSK and transmit after Costas block.
-9. Deassert PTT and return to idle.
+## Layout
 
-## Software Architecture (Target)
+- `driver/` reusable hardware-facing modules
+- `src/scheduler/` scheduler prototype and public API
+- `src/validation/` validation menu and module-specific test code
+- `build/` normal build output
+- `build_validation/` validation build output
 
-The architecture is layered so low-level timing primitives remain reusable while policy lives in dedicated schedulers/controllers.
+## Build presets
 
-### 1) Drivers (low-level hardware primitives)
-
-- `driver/pio_timer_output_compare`: trigger-to-pulse timing primitive (PIO-based)
-- `driver/pio_timer_input_capture`: edge-to-edge timing capture with timeout (PIO-based)
-- `driver/pio_alarm_timer`: command/result alarm timer with PPS rearm behavior
-- `driver/ad9850_driver`: AD9850 transport over RP2040 hardware SPI
-- (planned) rig control GPIO/UART/CAT abstraction
-- (planned) GPS PPS + timebase interface
-
-### 2) Scheduler and Timeline Policy
-
-- `src/scheduler/scheduler.c` orchestrates output-compare, alarm-timer, and AD9850 non-blocking write sequencing.
-- Scheduler validation is available from the validation menu (`5) Scheduler validation`).
-
-### 3) Application Control (high-level)
-
-- mission state machine (`IDLE -> ARM -> TX -> MEASURE -> TELEMETRY -> COMPLETE`)
-- timestamp estimation and quality metrics
-- runtime configuration (profiles, symbol sets, settle times)
-
-### 4) Validation and Test Harness
-
-- `src/validation/main_validation.c`: interactive USB CDC menu
-- module-specific validation entrypoints for:
-	- input capture
-	- output compare
-	- alarm timer
-	- AD9850
-- scope/logic-analyzer assisted verification workflows (AD2)
-
-## Current Repository Status
-
-Implemented now:
-
-- PIO output compare driver with runtime pin selection and programmable delay/pulse widths
-- PIO input capture driver with configurable pins and timeout behavior
-- PIO alarm timer driver with command/result flow and validation harness
-- AD9850 hardware SPI driver with explicit serial-enable contract and write guard
-- Scheduler module integrating alarm + output compare + AD9850 orchestration
-- Dedicated validation build mode and interactive USB validation menu
-- CMake presets/tasks for normal vs validation builds
-
-Not implemented yet (top priorities):
-
-- rig/PTT control state machine integration
-- RF-on timestamp integration into full transmission flow
-- telemetry encoding/transmission stage
-
-## Build Modes
-
-- Production mode: `normal` preset (`PIO_TIMER_CAPTURE_VALIDATION=OFF`)
-- Validation mode: `validation` preset (`PIO_TIMER_CAPTURE_VALIDATION=ON`)
+- `normal` builds the production entry point in `src/main.c`
+- `validation` builds the USB menu entry point in `src/validation/main_validation.c`
 
 Typical commands:
 
-- Configure production: `cmake --preset normal`
-- Build production: `cmake --build --preset build-normal`
-- Configure validation: `cmake --preset validation`
-- Build validation: `cmake --build --preset build-validation`
+- `cmake --preset normal`
+- `cmake --build --preset build-normal`
+- `cmake --preset validation`
+- `cmake --build --preset build-validation`
 
-## Architecture Roadmap
+The workspace already includes matching VS Code tasks for configure, build, and flash steps.
 
-### Phase 1 — Deterministic timing foundation
+## Timing model
 
-- finalize new scheduler module interface (separate from drivers)
-- support burst/series event programming for output compare consumers using validated primitives
-- define common timestamp units and rollover-safe arithmetic
+The intended transmit flow is:
 
-### Phase 2 — AD9850 waveform control integration
+1. wait for PPS
+2. apply a programmable delay
+3. key the rig
+4. wait for the RF chain to settle
+5. step through the Costas symbol plan
+6. capture the actual RF-on time
+7. append telemetry if required
 
-- implement AD9850 word queueing and `FQ_UD` strobe control
-- define Costas symbol plan format (frequency table + dwell/symbol length)
-- verify symbol timing against PPS with logic analyzer
+Only part of that path is implemented end to end. The current codebase mainly provides the timing primitives and validation harness needed to build toward it.
 
-### Phase 3 — Full TX control path
+## Validation workflow
 
-- add PTT + settle timing into unified timeline
-- integrate RF-on capture into mission execution
-- handle abort/fault paths (no RF-on, GPS fault, timing overruns)
+Build the `validation` preset, flash it, open the USB serial console, and select a module from the menu. The validation firmware is the fastest way to confirm pin mapping, timing assumptions, and PIO program behavior on hardware.
 
-### Phase 4 — Measurement and telemetry
+Available modules cover:
 
-- estimate PPS-to-RF delay per shot
-- implement FSK telemetry frame generation and TX insertion
-- add quality fields (timeout count, jitter, confidence)
+- input capture
+- output compare
+- alarm timer
+- AD9850 transport
+- scheduler orchestration
 
-### Phase 5 — Hardware-assisted calibration (future)
+## Near-term work
 
-- integrate ADC sampling for RF envelope slope/amplitude
-- compensate comparator crossing walk vs power level
-- maintain calibration tables across operating conditions
+1. tighten first-event behavior in the scheduler
+2. add PTT and rig-settle timing to the scheduler path
+3. feed RF-on capture back into the transmit sequence
+4. define the telemetry format and send path
 
-## Next Steps (Practical, Near-Term)
+## Hardware notes
 
-1. Refine scheduler timing determinism for first-burst startup corner cases.
-2. Integrate rig/PTT control and settle timing into scheduler-managed sequence.
-3. Integrate RF-on capture into end-to-end scheduler flow.
-4. Define and implement telemetry framing/transmission stage.
-5. Build first integrated PPS -> PTT -> Costas-start demonstrator.
+The expected hardware stack is:
 
-## Hardware Integration Notes (Planned)
+- RP2040 board
+- AD9850 DDS stage
+- GPS receiver with PPS
+- RF detector or comparator for RF-on sensing
+- rig control interface
 
-Final hardware is expected to integrate:
-
-- MCU
-- AD9850 DDS chain
-- GPS receiver (PPS + serial time data)
-- RF sampler/comparator front-end for RF-on detect
-- HF rig interface circuitry
-
-Detailed circuit design is currently TODO.
+Board-level integration details are still evolving, so the software currently keeps hardware assumptions narrow and pushes most verification into the validation build.
