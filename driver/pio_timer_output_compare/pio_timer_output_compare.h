@@ -47,10 +47,22 @@ void pio_timer_output_compare_queue_event(PIO pio,
                                           uint32_t compare_ticks,
                                           uint32_t pulse_ticks);
 
+// Attempts to enqueue one event in continuous mode without blocking.
+// Returns false when there is insufficient TX FIFO space for both words.
+bool pio_timer_output_compare_try_queue_event(PIO pio,
+                                              uint sm,
+                                              uint32_t compare_ticks,
+                                              uint32_t pulse_ticks);
+
 // Enqueues a stop command in continuous mode.
 // When consumed, playback stops and waits for the next trigger edge.
 void pio_timer_output_compare_queue_stop(PIO pio,
                                          uint sm);
+
+// Attempts to enqueue stream stop command in continuous mode without blocking.
+// Returns false when there is insufficient TX FIFO space for both stop words.
+bool pio_timer_output_compare_try_queue_stop(PIO pio,
+                                             uint sm);
 
 // Converts nanoseconds to output-compare ticks for a given SM clock.
 // Helper applies to both compare delay and pulse width tick values.

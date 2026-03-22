@@ -67,12 +67,40 @@ void pio_timer_output_compare_queue_event(PIO pio,
     pio_sm_put_blocking(pio, sm, pulse_ticks);
 }
 
+bool pio_timer_output_compare_try_queue_event(PIO pio,
+                                              uint sm,
+                                              uint32_t compare_ticks,
+                                              uint32_t pulse_ticks)
+{
+    uint tx_level = pio_sm_get_tx_fifo_level(pio, sm);
+    if (tx_level > (PIO_TIMER_OUTPUT_COMPARE_TX_FIFO_WORDS - PIO_TIMER_OUTPUT_COMPARE_WORDS_PER_EVENT)) {
+        return false;
+    }
+
+    pio_sm_put(pio, sm, compare_ticks);
+    pio_sm_put(pio, sm, pulse_ticks);
+    return true;
+}
+
 void pio_timer_output_compare_queue_stop(PIO pio,
                                          uint sm)
 {
     // In continuous mode this command is consumed as stream terminator.
     pio_sm_put_blocking(pio, sm, PIO_TIMER_OUTPUT_COMPARE_STOP_COMPARE_TICKS);
     pio_sm_put_blocking(pio, sm, 0u);
+}
+
+bool pio_timer_output_compare_try_queue_stop(PIO pio,
+                                             uint sm)
+{
+    uint tx_level = pio_sm_get_tx_fifo_level(pio, sm);
+    if (tx_level > (PIO_TIMER_OUTPUT_COMPARE_TX_FIFO_WORDS - PIO_TIMER_OUTPUT_COMPARE_WORDS_PER_EVENT)) {
+        return false;
+    }
+
+    pio_sm_put(pio, sm, PIO_TIMER_OUTPUT_COMPARE_STOP_COMPARE_TICKS);
+    pio_sm_put(pio, sm, 0u);
+    return true;
 }
 
 uint32_t pio_timer_output_compare_ns_to_ticks(uint32_t sm_clk_hz,

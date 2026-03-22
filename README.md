@@ -42,15 +42,15 @@ The architecture is layered so low-level timing primitives remain reusable while
 
 - `driver/pio_timer_output_compare`: trigger-to-pulse timing primitive (PIO-based)
 - `driver/pio_timer_input_capture`: edge-to-edge timing capture with timeout (PIO-based)
-- (planned) AD9850 transport driver (bitbang/SPI-assisted)
+- `driver/pio_alarm_timer`: command/result alarm timer with PPS rearm behavior
+- `driver/ad9850_driver`: AD9850 transport over RP2040 hardware SPI
 - (planned) rig control GPIO/UART/CAT abstraction
 - (planned) GPS PPS + timebase interface
 
-### 2) Schedulers and Timeline Engine (mid-level)
+### 2) Scheduler and Timeline Policy
 
-- `src/scheduler/pio_event_scheduler`: CPU-fed non-blocking event scheduler for output-compare continuous mode
-- (planned) Costas symbol scheduler (word preload + `FQ_UD` pulse plan)
-- (planned) guard intervals and safety interlocks (PTT holdoff, timeout abort)
+- `src/scheduler/scheduler.c` orchestrates output-compare, alarm-timer, and AD9850 non-blocking write sequencing.
+- Scheduler validation is available from the validation menu (`5) Scheduler validation`).
 
 ### 3) Application Control (high-level)
 
@@ -61,7 +61,11 @@ The architecture is layered so low-level timing primitives remain reusable while
 ### 4) Validation and Test Harness
 
 - `src/validation/main_validation.c`: interactive USB CDC menu
-- module-specific validation entrypoints for input capture and output compare
+- module-specific validation entrypoints for:
+	- input capture
+	- output compare
+	- alarm timer
+	- AD9850
 - scope/logic-analyzer assisted verification workflows (AD2)
 
 ## Current Repository Status
@@ -70,13 +74,14 @@ Implemented now:
 
 - PIO output compare driver with runtime pin selection and programmable delay/pulse widths
 - PIO input capture driver with configurable pins and timeout behavior
-- Firmware-level PIO event scheduler module for continuous output-compare event feeding
+- PIO alarm timer driver with command/result flow and validation harness
+- AD9850 hardware SPI driver with explicit serial-enable contract and write guard
+- Scheduler module integrating alarm + output compare + AD9850 orchestration
 - Dedicated validation build mode and interactive USB validation menu
 - CMake presets/tasks for normal vs validation builds
 
 Not implemented yet (top priorities):
 
-- full AD9850 scheduler path for Costas symbols
 - rig/PTT control state machine integration
 - RF-on timestamp integration into full transmission flow
 - telemetry encoding/transmission stage
@@ -97,8 +102,8 @@ Typical commands:
 
 ### Phase 1 — Deterministic timing foundation
 
-- finalize scheduler module interface (separate from drivers)
-- support burst/series event programming for output compare consumers
+- finalize new scheduler module interface (separate from drivers)
+- support burst/series event programming for output compare consumers using validated primitives
 - define common timestamp units and rollover-safe arithmetic
 
 ### Phase 2 — AD9850 waveform control integration
@@ -127,10 +132,10 @@ Typical commands:
 
 ## Next Steps (Practical, Near-Term)
 
-1. Write a dedicated scheduler design note (API, queue model, timing ownership, ISR/DMA policy).
-2. Implement scheduler module skeleton with unit-testable logic (host-side where possible).
-3. Add validation menu path for scheduler-driven multi-event sequences.
-4. Define AD9850 transaction timing contract (word load and `FQ_UD` ordering guarantees).
+1. Refine scheduler timing determinism for first-burst startup corner cases.
+2. Integrate rig/PTT control and settle timing into scheduler-managed sequence.
+3. Integrate RF-on capture into end-to-end scheduler flow.
+4. Define and implement telemetry framing/transmission stage.
 5. Build first integrated PPS -> PTT -> Costas-start demonstrator.
 
 ## Hardware Integration Notes (Planned)

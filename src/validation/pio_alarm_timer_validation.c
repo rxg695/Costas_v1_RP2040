@@ -137,6 +137,11 @@ void pio_alarm_timer_validation_run(const pio_alarm_timer_validation_config_t *c
                 printf("Commands: r=rearm, a=queue next, b=queue burst, d=queue descending (guard), q=return\n");
 
     while (true) {
+        pio_alarm_timer_result_t polled_result;
+        while (pio_alarm_timer_try_read_decoded_result(&timer, &polled_result)) {
+            on_alarm_result(&polled_result, &runtime);
+        }
+
         while (runtime.rearm_ack_logged < runtime.rearm_ack_count) {
             runtime.rearm_ack_logged++;
             printf("timer_reset_ack=%lu\n", (unsigned long) runtime.rearm_ack_logged);

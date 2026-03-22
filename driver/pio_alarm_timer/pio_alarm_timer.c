@@ -4,6 +4,8 @@
 #include "hardware/irq.h"
 #include "pio_alarm_timer.pio.h"
 
+// One registry slot per PIO block and state machine.
+// Used by shared PIO IRQ0 handlers to dispatch decoded results.
 static pio_alarm_timer_t *rx_irq_registry[2][4] = {0};
 static bool rx_irq_handler_installed[2] = {false, false};
 
@@ -29,6 +31,7 @@ static enum pio_interrupt_source pio_alarm_timer_rx_source_for_sm(uint sm)
 static void pio_alarm_timer_decode_result_raw(uint32_t raw_result,
                                               pio_alarm_timer_result_t *decoded_out)
 {
+    // Fixed sentinel values have priority over "fired" interpretation.
     if (raw_result == PIO_ALARM_TIMER_RESULT_REARM_ACK) {
         decoded_out->kind = PIO_ALARM_TIMER_RESULT_KIND_REARM_ACK;
         decoded_out->tick = 0u;
@@ -47,6 +50,7 @@ static void pio_alarm_timer_decode_result_raw(uint32_t raw_result,
 
 static void pio_alarm_timer_irq0_dispatch(PIO pio)
 {
+    // Drain all available results for each registered SM in this PIO block.
     int pio_index = pio_alarm_timer_pio_index(pio);
     for (uint sm = 0; sm < 4; ++sm) {
         pio_alarm_timer_t *timer = rx_irq_registry[pio_index][sm];
@@ -75,6 +79,7 @@ static void pio1_irq0_handler(void)
 
 static void pio_alarm_timer_ensure_irq_handler_installed(PIO pio)
 {
+    // One exclusive IRQ0 handler per PIO block.
     int pio_index = pio_alarm_timer_pio_index(pio);
     if (rx_irq_handler_installed[pio_index]) {
         return;
@@ -95,6 +100,7 @@ static bool pio_alarm_timer_try_put(PIO pio,
                                     uint sm,
                                     uint32_t value)
 {
+    // Non-blocking enqueue helper used by host API guard paths.
     if (pio_sm_is_tx_fifo_full(pio, sm)) {
         return false;
     }
@@ -110,6 +116,7 @@ void pio_alarm_timer_init(pio_alarm_timer_t *timer,
                           uint pps_pin,
                           float sm_clk_hz)
 {
+    // Configure PIO SM and bind WAIT PIN input to PPS pin.
     pio_sm_config config = pio_alarm_timer_program_get_default_config(offset);
 
     pio_gpio_init(pio, pps_pin);
@@ -140,6 +147,7 @@ bool pio_alarm_timer_queue_rearm(pio_alarm_timer_t *timer)
 
     bool queued = pio_alarm_timer_try_put(timer->pio, timer->sm, PIO_ALARM_TIMER_CMD_REARM);
     if (queued) {
+        // Clear monotonic guard history after explicit rearm.
         timer->has_last_alarm = false;
         timer->last_alarm_tick = 0u;
     }
@@ -159,6 +167,7 @@ pio_alarm_timer_enqueue_status_t pio_alarm_timer_queue_alarm(pio_alarm_timer_t *
     }
 
     if (timer->has_last_alarm && alarm_tick < timer->last_alarm_tick) {
+        // Guard violation: force rearm request and report non-monotonic input.
         (void) pio_alarm_timer_queue_rearm(timer);
         return PIO_ALARM_TIMER_ENQUEUE_ERR_NON_MONOTONIC;
     }
@@ -225,6 +234,8 @@ void pio_alarm_timer_set_rx_irq_callback(pio_alarm_timer_t *timer,
 
     int pio_index = pio_alarm_timer_pio_index(timer->pio);
     rx_irq_registry[pio_index][timer->sm] = timer;
+
+    // Enable RX-not-empty source for this SM on IRQ0 line.
     pio_set_irq0_source_enabled(timer->pio,
                                 pio_alarm_timer_rx_source_for_sm(timer->sm),
                                 true);
@@ -236,6 +247,7 @@ void pio_alarm_timer_clear_rx_irq_callback(pio_alarm_timer_t *timer)
         return;
     }
 
+    // Disable RX-not-empty source and remove registry binding.
     pio_set_irq0_source_enabled(timer->pio,
                                 pio_alarm_timer_rx_source_for_sm(timer->sm),
                                 false);

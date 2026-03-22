@@ -13,6 +13,11 @@
 ; - WAIT PIN 0 is mapped to PPS input pin by host configuration.
 ; - Strict immediate cmd < t detection requires richer compare than basic PIO
 ;   primitives; host API monotonic guard prevents this case.
+;
+; Register roles:
+;   ISR -> timer counter state (32-bit)
+;   Y   -> current command tick target
+;   X   -> scratch / temporary compare
 
 .wrap_target
 entry:
@@ -36,7 +41,7 @@ process_cmd:
     jmp wait_next_cmd
 
 do_reset:
-    ; counter = 0
+    ; Reset counter state and emit one explicit ACK.
     mov isr, null
 
     ; push 0xFFFFFFFF ACK exactly once for this reset event
@@ -46,6 +51,7 @@ do_reset:
     push block
 
 wait_pps_low:
+    ; Rearm gate: wait for clean PPS rising edge before next command handling.
     wait 0 pin 0
 wait_pps_high:
     wait 1 pin 0

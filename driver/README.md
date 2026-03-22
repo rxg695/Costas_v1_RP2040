@@ -15,6 +15,8 @@ Current drivers:
   - Schedules output pulses from trigger events with programmable delay and pulse width.
 - [pio_alarm_timer](pio_alarm_timer/README.md)
   - Experimental command-driven PIO alarm timer with RX FIFO event reporting.
+- [ad9850_driver](ad9850_driver/README.md)
+  - Low-level AD9850 driver using RP2040 hardware SPI peripheral.
 
 ## Build integration
 

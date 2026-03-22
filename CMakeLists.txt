@@ -54,14 +54,15 @@ if(PIO_TIMER_CAPTURE_VALIDATION)
     target_sources(Costas_v1_RP2040 PRIVATE
         src/validation/pio_timer_input_capture_validation.c
         src/validation/pio_timer_output_compare_validation.c
-        src/validation/pio_event_scheduler_validation.c
         src/validation/pio_alarm_timer_validation.c
+        src/validation/ad9850_validation.c
+        src/validation/scheduler_validation.c
     )
 endif()
 
 # Shared driver sources and generated PIO headers (used in both prod/validation).
 target_sources(Costas_v1_RP2040 PRIVATE
-    src/scheduler/pio_event_scheduler.c
+    src/scheduler/scheduler.c
     ${DRIVER_SOURCES}
 )
 foreach(driver_pio_file IN LISTS DRIVER_PIO_FILES)
@@ -81,6 +82,7 @@ target_link_libraries(Costas_v1_RP2040
     # Driver modules rely on direct PIO and clock APIs in both modes.
     hardware_pio
     hardware_clocks
+    hardware_spi
 )
 
 # Add the standard include files to the build
