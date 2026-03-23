@@ -1,5 +1,15 @@
-# Costas Array Timing Firmware
+# Costas Array Beacon Timing Engine Firmware
 
+## Important note on project status:
+`Date: 2026-03-23`
+
+This repository should currently be treated as unfinished work.
+
+The present RP2040 design is short one PIO block for the intended end state, so the project will be forked and migrated to RP2350 for further development.
+
+There is a non-zero chance this RP2040 branch will be revisited later, but it is not the active path for now.
+
+## Overview
 Firmware for an RP2040-based timing engine intended for PPS-disciplined Costas-array transmission experiments.
 
 The long-term goal is to start a transmission from GPS PPS, step the AD9850 through a symbol plan, and measure when RF actually appears at the rig output.
